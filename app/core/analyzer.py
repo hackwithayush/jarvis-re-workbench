@@ -44,6 +44,9 @@ from adapters import (
     DnSpyAdapter,
     AngrAdapter,
     GhidraAdapter,
+    JadxAdapter,
+    CapaAdapter,
+    YaraAdapter,
 )
 
 logger = logging.getLogger("jarvis.re.analyzer")
@@ -325,6 +328,78 @@ class BinaryAnalyzer:
                             )
                     except Exception as e:
                         logger.warning("angr analysis execution error: %s", e)
+
+            # YARA signature matching
+            yara_adapter = YaraAdapter()
+            if yara_adapter.is_available():
+                try:
+                    yara_raw = yara_adapter.analyze(self.file_path, temp_ws, options=options)
+                    for item in yara_raw:
+                        findings.append(
+                            Finding(
+                                run_id=run_id,
+                                sample_sha256=hashes["sha256"],
+                                source_tool="yara",
+                                tool_version=yara_adapter.get_version() or "4.5.0",
+                                finding_type=FindingType.ANOMALY,
+                                name=item.get("name", "yara_match"),
+                                description=item.get("description", "YARA Rule Match"),
+                                confidence=item.get("confidence", 0.92),
+                                verification_status=FindingStatus.FLAGGED,
+                                raw_data=item.get("raw_data", {}),
+                            )
+                        )
+                except Exception as yara_err:
+                    logger.warning("YARA analysis error: %s", yara_err)
+
+            # JADX Android APK / DEX Decompilation
+            is_android = "DEX" in file_type or "APK" in file_type or self.file_path.lower().endswith((".apk", ".dex"))
+            if is_android:
+                jadx_adapter = JadxAdapter()
+                if jadx_adapter.is_available():
+                    try:
+                        jadx_raw = jadx_adapter.analyze(self.file_path, temp_ws, options=options)
+                        for item in jadx_raw:
+                            findings.append(
+                                Finding(
+                                    run_id=run_id,
+                                    sample_sha256=hashes["sha256"],
+                                    source_tool="jadx",
+                                    tool_version=jadx_adapter.get_version() or "1.5.6",
+                                    finding_type=FindingType.DECOMPILED_CODE if "decompil" in item.get("name", "") else FindingType.METADATA,
+                                    name=item.get("name", "jadx_artifact"),
+                                    description=item.get("description", "JADX Decompilation"),
+                                    confidence=item.get("confidence", 0.95),
+                                    verification_status=FindingStatus.CONFIRMED,
+                                    raw_data=item.get("raw_data", {}),
+                                )
+                            )
+                    except Exception as jadx_err:
+                        logger.warning("JADX decompilation error: %s", jadx_err)
+
+            # Mandiant capa capability analysis
+            if options.get("enable_capa", False) or "PE" in file_type or "ELF" in file_type:
+                capa_adapter = CapaAdapter()
+                if capa_adapter.is_available():
+                    try:
+                        capa_raw = capa_adapter.analyze(self.file_path, temp_ws, options=options)
+                        for item in capa_raw:
+                            findings.append(
+                                Finding(
+                                    run_id=run_id,
+                                    sample_sha256=hashes["sha256"],
+                                    source_tool="capa",
+                                    tool_version=capa_adapter.get_version() or "10.0.0",
+                                    finding_type=FindingType.METADATA,
+                                    name=item.get("name", "capa_capability"),
+                                    description=item.get("description", "Program capability"),
+                                    confidence=item.get("confidence", 0.90),
+                                    verification_status=FindingStatus.CONFIRMED,
+                                    raw_data=item.get("raw_data", {}),
+                                )
+                            )
+                    except Exception as capa_err:
+                        logger.warning("capa analysis error: %s", capa_err)
 
         finally:
             shutil.rmtree(temp_ws, ignore_errors=True)

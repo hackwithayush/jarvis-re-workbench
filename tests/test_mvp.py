@@ -105,6 +105,10 @@ def test_04_tool_availability_auditing():
     assert "x64dbg" in tools
     assert "frida" in tools
     assert "angr" in tools
+    assert "jadx" in tools
+    assert "capa" in tools
+    assert "yara" in tools
+    assert "lief" in tools
 
     assert tools["native_engine"]["installed"] is True
 

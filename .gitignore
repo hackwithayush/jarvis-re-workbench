@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+venv/
+.env
+workspace/samples/
+workspace/sandbox/
+workspace/ghidra_projects/

@@ -13,6 +13,9 @@ from .angr_adapter import AngrAdapter
 from .imhex_adapter import ImHexAdapter
 from .dnspy_adapter import DnSpyAdapter
 from .x64dbg_adapter import X64DbgAdapter
+from .jadx_adapter import JadxAdapter
+from .capa_adapter import CapaAdapter
+from .yara_adapter import YaraAdapter
 
 __all__ = [
     "BaseAdapter",
@@ -25,4 +28,7 @@ __all__ = [
     "ImHexAdapter",
     "DnSpyAdapter",
     "X64DbgAdapter",
+    "JadxAdapter",
+    "CapaAdapter",
+    "YaraAdapter",
 ]

@@ -25,6 +25,10 @@ class ToolAuditor:
             "angr": ToolAuditor.check_angr(),
             "imhex": ToolAuditor.check_imhex(),
             "dnspy": ToolAuditor.check_dnspy(),
+            "jadx": ToolAuditor.check_jadx(),
+            "capa": ToolAuditor.check_capa(),
+            "yara": ToolAuditor.check_yara(),
+            "lief": ToolAuditor.check_lief(),
         }
 
     @staticmethod
@@ -221,4 +225,81 @@ class ToolAuditor:
             "path": dn,
             "description": ".NET assembly decompiler, IL analyzer, and C# source recoverer.",
             "install_hint": "Installed via dotnet tool",
+        }
+
+    @staticmethod
+    def check_jadx() -> Dict[str, Any]:
+        jadx = shutil.which("jadx.bat") or shutil.which("jadx")
+        for p in [r"C:\Tools\jadx\bin\jadx.bat", r"C:\Tools\jadx\bin\jadx"]:
+            if not jadx and os.path.isfile(p):
+                jadx = p
+        return {
+            "name": "JADX Android Decompiler",
+            "category": "Android APK/DEX Reverse Engineering",
+            "installed": bool(jadx),
+            "version": "jadx-1.5.6" if jadx else None,
+            "path": jadx,
+            "description": "Decompiles Android APK and DEX bytecode into Java source code with manifest recovery.",
+            "install_hint": "Built-in / Portable in C:\\Tools\\jadx",
+        }
+
+    @staticmethod
+    def check_capa() -> Dict[str, Any]:
+        installed = False
+        ver = None
+        try:
+            import capa
+            installed = True
+            ver = getattr(capa, "__version__", "10.0.0")
+        except ImportError:
+            installed = bool(shutil.which("capa.exe") or shutil.which("capa"))
+            ver = "capa-cli" if installed else None
+        return {
+            "name": "Mandiant capa",
+            "category": "Capability Detection & MITRE ATT&CK",
+            "installed": installed,
+            "version": ver,
+            "path": "python:flare-capa" if installed else None,
+            "description": "Detects high-level program capabilities and maps indicators to MITRE ATT&CK tactics.",
+            "install_hint": "pip install flare-capa",
+        }
+
+    @staticmethod
+    def check_yara() -> Dict[str, Any]:
+        installed = False
+        ver = None
+        try:
+            import yara
+            installed = True
+            ver = getattr(yara, "__version__", "4.5.0")
+        except ImportError:
+            pass
+        return {
+            "name": "YARA Rule Engine",
+            "category": "Signature & Malware Identification",
+            "installed": installed,
+            "version": ver,
+            "path": "python:yara" if installed else None,
+            "description": "Pattern matching swiss army knife for malware identification and indicator classification.",
+            "install_hint": "pip install yara-python",
+        }
+
+    @staticmethod
+    def check_lief() -> Dict[str, Any]:
+        installed = False
+        ver = None
+        try:
+            import lief
+            installed = True
+            ver = getattr(lief, "__version__", "1.0.0")
+        except ImportError:
+            pass
+        return {
+            "name": "LIEF Binary Parser",
+            "category": "Multi-Format Binary Forensics",
+            "installed": installed,
+            "version": ver,
+            "path": "python:lief" if installed else None,
+            "description": "Library to Instrument Executable Formats (PE, ELF, Mach-O, Android DEX).",
+            "install_hint": "pip install lief",
         }
