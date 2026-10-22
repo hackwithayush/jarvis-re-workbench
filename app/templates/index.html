@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>JARVIS — Reverse Engineering Workbench v1.0</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <style>
+    .sub-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-bottom: 16px; }
+    .badge { font-size: 11px; padding: 2px 6px; border-radius: 4px; font-weight: 600; text-transform: uppercase; }
+    .badge-danger { background: rgba(255, 71, 114, 0.15); color: var(--danger); border: 1px solid var(--danger); }
+    .badge-warning { background: rgba(255, 184, 0, 0.15); color: var(--warning); border: 1px solid var(--warning); }
+    .badge-success { background: rgba(0, 255, 170, 0.15); color: var(--success); border: 1px solid var(--success); }
+    .badge-info { background: rgba(0, 245, 255, 0.15); color: var(--accent); border: 1px solid var(--accent); }
+    .code-viewer { background: #080c18; border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; font-family: 'Consolas', 'Courier New', monospace; font-size: 12px; color: #b8c4e0; max-height: 480px; overflow-y: auto; line-height: 1.5; white-space: pre-wrap; }
+    .cfg-node { background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; padding: 12px; margin-bottom: 12px; font-family: monospace; font-size: 12px; }
+    .cfg-header { display: flex; justify-content: space-between; border-bottom: 1px solid var(--border); padding-bottom: 6px; margin-bottom: 6px; color: var(--accent); }
+    .sandbox-panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <div class="brand-icon">J</div>
+      <h1>JARVIS RE Workbench</h1>
+      <span>v1.0 Pro</span>
+    </div>
+    <div class="header-actions">
+      <button id="voiceBtn" class="voice-btn" title="Click to speak a voice command">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+          <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+          <line x1="12" y1="19" x2="12" y2="23"></line>
+          <line x1="8" y1="23" x2="16" y2="23"></line>
+        </svg>
+        <span>Voice Commands</span>
+      </button>
+      <a href="/docs" target="_blank" class="btn">API Docs</a>
+    </div>
+  </header>
+
+  <main>
+    <!-- Upload Drop Zone -->
+    <div id="dropZone" class="upload-card">
+      <input type="file" id="fileInput">
+      <div class="upload-icon">&#9889;</div>
+      <h2>Select or Drop an Executable Binary to Analyze</h2>
+      <p>Multi-Engine Static & Dynamic Triage: PE, ELF, Mach-O, .NET assemblies, DEX, and archives (up to 500 MB)</p>
+    </div>
+
+    <!-- Progress Notification -->
+    <div id="progressBox" class="progress-container">
+      <div id="progressText" style="font-weight: 600; font-size: 14px;">Initializing analysis pass...</div>
+      <div class="progress-bar-bg">
+        <div id="progressBar" class="progress-bar-fill"></div>
+      </div>
+      <div id="jobLog" style="margin-top: 8px; font-family: monospace; font-size: 11px; color: var(--text-muted);"></div>
+    </div>
+
+    <!-- Analysis Results Section -->
+    <section id="resultsSection" class="results-section">
+      <!-- Target Metadata Cards -->
+      <div class="meta-grid">
+        <div class="card">
+          <div class="label">Filename</div>
+          <div id="metaFilename" class="value">—</div>
+        </div>
+        <div class="card">
+          <div class="label">Detected Format</div>
+          <div id="metaFormat" class="value">—</div>
+        </div>
+        <div class="card">
+          <div class="label">Architecture</div>
+          <div id="metaArch" class="value">—</div>
+        </div>
+        <div class="card">
+          <div class="label">File Size</div>
+          <div id="metaSize" class="value">—</div>
+        </div>
+        <div class="card">
+          <div class="label">Shannon Entropy</div>
+          <div id="metaEntropy" class="value">—</div>
+        </div>
+        <div class="card">
+          <div class="label">Imphash</div>
+          <div id="metaImphash" class="value" style="font-size: 13px;">—</div>
+        </div>
+        <div class="card" style="grid-column: span 2;">
+          <div class="label">SHA-256 Digest</div>
+          <div id="metaSha256" class="value" style="font-size: 13px;">—</div>
+        </div>
+      </div>
+
+      <!-- Action Toolbar -->
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 8px;">
+        <div class="tabs" style="margin-bottom: 0;">
+          <button class="tab-btn active" data-tab="tabFindings">Evidence Findings</button>
+          <button class="tab-btn" data-tab="tabSections">Sections & Entropy</button>
+          <button class="tab-btn" data-tab="tabImports">Imports & Exports</button>
+          <button class="tab-btn" data-tab="tabFunctions">Functions & Disassembly</button>
+          <button class="tab-btn" data-tab="tabDecompiler">Decompiler (C/C#)</button>
+          <button class="tab-btn" data-tab="tabCfg">CFG Graph</button>
+          <button class="tab-btn" data-tab="tabSandbox">Dynamic Sandbox</button>
+          <button class="tab-btn" data-tab="tabAI">AI Analyst</button>
+          <button class="tab-btn" data-tab="tabTools">Tool Ecosystem</button>
+          <button class="tab-btn" data-tab="tabJson">Raw JSON</button>
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <button class="btn" onclick="downloadReportJson()">Download JSON</button>
+          <button class="btn" onclick="downloadReportMarkdown()">Download Markdown</button>
+          <button class="btn" onclick="downloadReportHtml()">Download HTML</button>
+        </div>
+      </div>
+
+      <!-- Tab: Findings Explorer -->
+      <div id="tabFindings" class="tab-content active">
+        <div style="margin-bottom: 14px; display: flex; align-items: center; gap: 10px;">
+          <label for="findingFilter" style="font-size: 13px; color: var(--text-muted);">Filter by type:</label>
+          <select id="findingFilter" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text); padding: 6px 12px; border-radius: 6px; font-size: 12px;">
+            <option value="all">All Findings</option>
+            <option value="metadata">Metadata</option>
+            <option value="section">Sections</option>
+            <option value="entry_point">Entry Points</option>
+            <option value="string">Classified Strings</option>
+            <option value="compiler">Compiler / Signatures</option>
+            <option value="import">Imports & APIs</option>
+            <option value="function">Functions</option>
+            <option value="anomaly">Anomalies</option>
+          </select>
+        </div>
+        <div style="background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow-x: auto;">
+          <table>
+            <thead>
+              <tr>
+                <th>Location / Offset</th>
+                <th>Category</th>
+                <th>Identifier</th>
+                <th>Source Tool</th>
+                <th>Confidence</th>
+                <th>Observation & Evidence</th>
+              </tr>
+            </thead>
+            <tbody id="findingsTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Tab: Sections & Entropy -->
+      <div id="tabSections" class="tab-content">
+        <div style="background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow-x: auto;">
+          <table>
+            <thead>
+              <tr>
+                <th>Section Name</th>
+                <th>Virtual Address</th>
+                <th>Virtual Size</th>
+                <th>Raw Size</th>
+                <th>Shannon Entropy</th>
+                <th>Characteristics / Flags</th>
+              </tr>
+            </thead>
+            <tbody id="sectionsTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Tab: Imports & Exports -->
+      <div id="tabImports" class="tab-content">
+        <h3 style="font-size: 14px; margin-bottom: 12px; color: var(--accent);">Imported Dynamic Libraries & Functions</h3>
+        <div id="importsContainer"></div>
+        <h3 style="font-size: 14px; margin: 20px 0 12px 0; color: var(--secondary);">Exported Symbols</h3>
+        <div style="background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow-x: auto;">
+          <table>
+            <thead>
+              <tr>
+                <th>Ordinal</th>
+                <th>Function Name</th>
+                <th>RVA</th>
+              </tr>
+            </thead>
+            <tbody id="exportsTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Tab: Functions & Disassembly -->
+      <div id="tabFunctions" class="tab-content">
+        <div style="display: grid; grid-template-columns: 280px 1fr; gap: 16px;">
+          <div>
+            <h4 style="font-size: 13px; margin-bottom: 8px; color: var(--text-muted);">Recovered Functions</h4>
+            <div id="functionList" style="max-height: 480px; overflow-y: auto; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);"></div>
+          </div>
+          <div>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+              <h4 id="disasmTitle" style="font-size: 13px; color: var(--accent);">Function Disassembly</h4>
+              <button class="btn" onclick="explainCurrentFunction()">AI Explain Function</button>
+            </div>
+            <div id="disasmCode" class="code-viewer">Select a function on the left to view instructions.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab: Decompiler (C / C#) -->
+      <div id="tabDecompiler" class="tab-content">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
+          <div>
+            <span style="font-size: 13px; color: var(--text-muted);">Decompiler Output: </span>
+            <strong id="decompilerEngineLabel" style="color: var(--accent);">radare2 / Ghidra / ILSpy</strong>
+          </div>
+          <div style="display: flex; gap: 8px;">
+            <button id="ghidraDecompileBtn" class="btn" style="border-color: var(--secondary); color: var(--secondary);" onclick="triggerGhidraDecompilation()">Run Ghidra Headless</button>
+            <button class="btn" onclick="explainCurrentDecompilation()">AI Summarize Code</button>
+          </div>
+        </div>
+        <div id="decompilerCode" class="code-viewer">// Decompiled source code will appear here...</div>
+      </div>
+
+      <!-- Tab: CFG Graph -->
+      <div id="tabCfg" class="tab-content">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+          <h3 style="font-size: 14px; margin-bottom: 0; color: var(--accent);">Control-Flow Graph Basic Blocks & Branch Edges</h3>
+          <button id="angrSymbolicBtn" class="btn" style="border-color: var(--accent); color: var(--accent);" onclick="triggerAngrSymbolic()">Run angr Symbolic CFG</button>
+        </div>
+        <div id="cfgContainer"></div>
+      </div>
+
+      <!-- Tab: Dynamic Sandbox -->
+      <div id="tabSandbox" class="tab-content">
+        <div class="sandbox-panel">
+          <h3 style="font-size: 15px; color: var(--danger); margin-bottom: 8px;">Controlled Dynamic Execution Jail</h3>
+          <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px;">
+            Execute sample inside an isolated, disposable sandbox environment with strict resource limits and network isolation.
+            <strong>Notice:</strong> Dynamic execution is optional and requires explicit confirmation. Static analysis never automatically executes files.
+          </p>
+          <div style="display: flex; gap: 12px; align-items: center; margin-bottom: 16px;">
+            <label style="font-size: 13px; display: flex; align-items: center; gap: 6px; cursor: pointer;">
+              <input type="checkbox" id="sandboxConsent">
+              <span>I confirm authorization to run this binary sample in isolation.</span>
+            </label>
+            <button class="btn" style="border-color: var(--danger); color: var(--danger);" onclick="runSandboxExecution()">Execute in Sandbox</button>
+          </div>
+          <div id="sandboxOutput" class="code-viewer" style="display: none;"></div>
+        </div>
+      </div>
+
+      <!-- Tab: AI Analyst -->
+      <div id="tabAI" class="tab-content">
+        <h3 style="font-size: 14px; margin-bottom: 12px; color: var(--accent);">AI Investigation Hypotheses & Evidence Assessment</h3>
+        <div id="hypothesesContainer" style="margin-bottom: 20px;"></div>
+        <div id="aiBriefContainer" class="code-viewer"></div>
+      </div>
+
+      <!-- Tab: Tool Ecosystem -->
+      <div id="tabTools" class="tab-content">
+        <div id="toolEcosystemGrid" class="tool-grid"></div>
+      </div>
+
+      <!-- Tab: Raw JSON -->
+      <div id="tabJson" class="tab-content">
+        <pre id="rawJson" class="raw-json"></pre>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    JARVIS AI Reverse Engineering Workbench v1.0 &bull; Multi-Engine Reverse Engineering Platform &bull; Strict Provenance
+  </footer>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

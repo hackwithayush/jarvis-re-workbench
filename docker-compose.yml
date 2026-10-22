@@ -1,0 +1,11 @@
+version: '3.8'
+
+services:
+  jarvis-re:
+    build: .
+    container_name: jarvis_re_workbench
+    ports:
+      - "8000:8000"
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
