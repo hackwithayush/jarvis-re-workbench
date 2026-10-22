@@ -192,6 +192,10 @@ async def analyze_sample(file: UploadFile = File(...)):
             exports=analyzer.exports,
             functions=analyzer.functions,
             archive_members=analyzer.archive_members,
+            tool_executions=analyzer.tool_executions,
+            ai_hypotheses=analyzer.ai_hypotheses,
+            assessment=analyzer.assessment,
+            string_stats=analyzer.string_stats,
             report_id=sample_uid,
         )
 

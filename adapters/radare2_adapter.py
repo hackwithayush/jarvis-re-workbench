@@ -8,6 +8,7 @@ import json
 import logging
 import os
 import shutil
+import time
 from typing import Any, Dict, List, Optional
 
 from .base_adapter import BaseAdapter
@@ -20,10 +21,11 @@ class Radare2Adapter(BaseAdapter):
 
     TOOL_NAME: str = "radare2"
 
-    def __init__(self, tool_path: Optional[str] = None, timeout: int = 300):
+    def __init__(self, tool_path: Optional[str] = None, timeout: int = 45):
         super().__init__(tool_path=tool_path, timeout=timeout)
         if not self.tool_path:
             self.tool_path = self._find_radare2()
+        self.last_execution: Optional[Dict[str, Any]] = None
 
     def _find_radare2(self) -> Optional[str]:
         cmd = shutil.which("radare2") or shutil.which("r2")
@@ -93,14 +95,27 @@ class Radare2Adapter(BaseAdapter):
             except Exception as err:
                 logger.warning(f"rabin2 info extraction failed: {err}")
 
-        # 2. Extract functions via r2 batch analysis: "aaa; aflj"
+        # 2. Extract functions via r2 batch analysis: "aa; aflj"
+        r2_cmd = [self.tool_path, "-qc", "aa; aflj", sample_path]
+        t0 = time.time()
+        funcs_recovered = 0
+        zero_reason = None
+        exit_code = 0
+        stdout_snip = ""
+        stderr_snip = ""
+        parsing_status = "unparsed"
+
         try:
-            res = self._run_process(
-                [self.tool_path, "-qc", "aaa; aflj", sample_path],
-                timeout=self.timeout,
-            )
-            if res.stdout.strip().startswith("[") and res.stdout.strip().endswith("]"):
-                funcs = json.loads(res.stdout)
+            res = self._run_process(r2_cmd, timeout=self.timeout)
+            exit_code = res.returncode
+            stdout_snip = (res.stdout or "")[:500]
+            stderr_snip = (res.stderr or "")[:500]
+            raw_out = res.stdout.strip()
+
+            if raw_out.startswith("[") and raw_out.endswith("]"):
+                funcs = json.loads(raw_out)
+                parsing_status = "success"
+                funcs_recovered = len(funcs)
                 for f in funcs[:100]:  # Cap at 100 for summary
                     addr = f.get("addr") if f.get("addr") is not None else f.get("offset", 0)
                     name = f.get("name", f"fcn_{addr:x}")
@@ -118,7 +133,50 @@ class Radare2Adapter(BaseAdapter):
                             raw_data=f,
                         )
                     )
+            else:
+                parsing_status = "unexpected_format"
+                zero_reason = f"Output did not match expected JSON array: '{raw_out[:120]}'"
+
+            if funcs_recovered == 0 and not zero_reason:
+                zero_reason = "Zero functions discovered: binary may be a managed .NET assembly, stripped, packed, or pure data."
+
         except Exception as err:
             logger.warning(f"radare2 function extraction failed: {err}")
+            parsing_status = "error"
+            zero_reason = str(err)
+            stderr_snip = str(err)
+
+        duration = round(time.time() - t0, 3)
+
+        self.last_execution = {
+            "tool_name": "radare2",
+            "tool_version": self.get_version() or "radare2",
+            "command": " ".join(r2_cmd),
+            "exit_code": exit_code,
+            "duration_seconds": duration,
+            "stdout_snippet": stdout_snip,
+            "stderr_snippet": stderr_snip,
+            "functions_recovered": funcs_recovered,
+            "zero_functions_reason": zero_reason,
+            "parsing_status": parsing_status,
+            "findings_count": len(findings),
+        }
+
+        # If zero functions were recovered, report an explicit, truthful diagnostic finding
+        if funcs_recovered == 0:
+            findings.append(
+                self._make_finding(
+                    finding_type="metadata",
+                    name="radare2_function_analysis_result",
+                    description=(
+                        f"radare2 function analysis finished (duration: {duration}s, exit code: {exit_code}): "
+                        f"0 functions recovered ({zero_reason})"
+                    ),
+                    confidence=0.90,
+                    raw_data=self.last_execution,
+                )
+            )
+
+        return findings
 
         return findings

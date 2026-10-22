@@ -34,6 +34,10 @@ class ReportGenerator:
         exports: Optional[List[ExportEntry]] = None,
         functions: Optional[List[FunctionDetails]] = None,
         archive_members: Optional[List[ArchiveMember]] = None,
+        tool_executions: Optional[Dict[str, Any]] = None,
+        ai_hypotheses: Optional[List[Any]] = None,
+        assessment: Optional[Dict[str, Any]] = None,
+        string_stats: Optional[Dict[str, Any]] = None,
         report_id: Optional[str] = None,
     ) -> AnalysisReport:
         sections = sections or []
@@ -41,6 +45,9 @@ class ReportGenerator:
         exports = exports or []
         functions = functions or []
         archive_members = archive_members or []
+        tool_executions = tool_executions or {}
+        ai_hypotheses = ai_hypotheses or []
+        string_stats = string_stats or {}
 
         # Count findings by type and confidence
         by_type: Dict[str, int] = {}
@@ -74,22 +81,43 @@ class ReportGenerator:
             "archive_members_count": len(archive_members),
             "suspicious_apis_count": len(suspicious_apis),
             "tools_actually_executed": sorted(list(tools_executed)),
+            "string_metrics": {
+                "raw_strings_count": string_stats.get("raw_strings_count", 0),
+                "quality_filtered_count": string_stats.get("quality_filtered_count", 0),
+                "deduplicated_groups_count": string_stats.get("deduplicated_groups_count", 0),
+                "high_value_indicators_count": string_stats.get("high_value_indicators_count", 0),
+                "explanation": (
+                    "Raw strings count total byte sequences matched; quality filtering eliminates non-alphanumeric noise; "
+                    "deduplicated groups consolidate identical strings across multiple offsets; high-value indicators isolate URLs, paths, registry keys, and APIs."
+                ),
+            },
+            "assessment": assessment,
         }
 
-        # Dynamic, accurate limitations
+        # Dynamic, accurate limitations reflecting tool execution truthfulness
         limitations = [
             "STATIC TRIAGE PASS: Initial analysis recovered headers, sections, imports/exports, strings, and tool heuristics.",
         ]
         if "radare2" in tools_executed:
-            limitations.append("RADARE2 EXECUTED: Disassembly and function metadata recovered via radare2 engine.")
+            if len(functions) > 0:
+                limitations.append(f"RADARE2 EXECUTED: Disassembly and {len(functions)} function(s) recovered via radare2 engine.")
+            else:
+                limitations.append("RADARE2 EXECUTED: Command completed with exit code 0; 0 native functions recovered (managed .NET assembly or stripped binary).")
         if "die" in tools_executed:
             limitations.append("DETECT IT EASY EXECUTED: Compiler and packer signature matching verified via DIE.")
         if "ghidra" in tools_executed:
-            limitations.append("GHIDRA EXECUTED: Deep headless decompilation and symbols recovered.")
+            gh_funcs = sum(1 for f in findings if f.source_tool == "ghidra" and f.finding_type == FindingType.FUNCTION)
+            if gh_funcs > 0:
+                limitations.append(f"GHIDRA EXECUTED: Deep headless decompilation and {gh_funcs} symbols/functions recovered.")
+            else:
+                limitations.append("GHIDRA EXECUTED: Headless run completed, 0 functions extracted.")
         else:
-            limitations.append("GHIDRA STANDBY: Deep headless decompilation available on-demand.")
+            limitations.append("GHIDRA STANDBY: Deep headless decompilation available on-demand (POST /api/deep/ghidra/{report_id}).")
 
-        limitations.append("NO UNCONTROLLED EXECUTION: Live dynamic execution in sandbox requires explicit authorization.")
+        if assessment:
+            limitations.append(f"ASSESSMENT [{assessment.get('verdict')}]: {assessment.get('rationale')}")
+
+        limitations.append("NO AUTOMATIC EXECUTION: Live dynamic execution in sandbox requires explicit analyst authorization.")
         limitations.append("PROVENANCE INTEGRITY: All findings record source tool, address, and verification status.")
 
         return AnalysisReport(
@@ -103,6 +131,9 @@ class ReportGenerator:
             archive_members=archive_members,
             findings=findings,
             tools_audited=tools_audited,
+            tool_executions=tool_executions,
+            ai_hypotheses=ai_hypotheses,
+            assessment=assessment,
             limitations=limitations,
             generated_at=datetime.now(timezone.utc),
         )

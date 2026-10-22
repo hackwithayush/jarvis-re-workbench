@@ -130,10 +130,12 @@ class JobManager:
                 exports=analyzer.exports,
                 functions=enriched_functions,
                 archive_members=analyzer.archive_members,
+                tool_executions=analyzer.tool_executions,
+                ai_hypotheses=hypotheses,
+                assessment=assessment,
+                string_stats=analyzer.string_stats,
                 report_id=job.job_id,
             )
-            report.ai_hypotheses = hypotheses
-            report.summary["assessment"] = assessment
 
             job.report = report
             self._update_stage(job, 100, "Analysis complete. Report generated.")

@@ -13,6 +13,38 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
 
+class ToolExecutionState(str, Enum):
+    DISCOVERED = "discovered"
+    INSTALLED = "installed"
+    VERSION_VERIFIED = "version_verified"
+    CAPABILITY_VERIFIED = "capability_verified"
+    EXECUTION_REQUESTED = "execution_requested"
+    EXECUTION_STARTED = "execution_started"
+    EXECUTION_COMPLETED = "execution_completed"
+    OUTPUT_PARSED = "output_parsed"
+    ARTIFACTS_VALIDATED = "artifacts_validated"
+    RESULTS_PERSISTED = "results_persisted"
+    FAILED = "failed"
+    SKIPPED = "skipped"
+
+
+class ToolExecutionRecord(BaseModel):
+    tool_name: str = "unknown"
+    tool_version: Optional[str] = None
+    state: ToolExecutionState = ToolExecutionState.DISCOVERED
+    command: Optional[str] = None
+    exit_code: Optional[int] = None
+    duration_seconds: float = 0.0
+    stdout_snippet: Optional[str] = None
+    stderr_snippet: Optional[str] = None
+    artifact_paths: List[str] = Field(default_factory=list)
+    functions_recovered: int = 0
+    zero_functions_reason: Optional[str] = None
+    findings_count: int = 0
+    parsing_status: str = "pending"
+    error_message: Optional[str] = None
+
+
 class FindingType(str, Enum):
     METADATA = "metadata"
     HEADER = "header"
@@ -185,6 +217,8 @@ class AnalysisReport(BaseModel):
     dynamic_trace: Optional[DynamicTrace] = None
     findings: List[Finding]
     tools_audited: Dict[str, Any]
+    tool_executions: Dict[str, ToolExecutionRecord] = Field(default_factory=dict)
     ai_hypotheses: List[AIHypothesis] = Field(default_factory=list)
+    assessment: Optional[Dict[str, Any]] = None
     limitations: List[str]
     generated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

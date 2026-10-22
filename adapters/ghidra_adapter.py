@@ -243,6 +243,7 @@ class GhidraAdapter(BaseAdapter):
         """
         super().__init__(tool_path=tool_path, timeout=timeout)
         self.java_path = java_path
+        self.last_execution: Optional[Dict[str, Any]] = None
         if self.tool_path is None:
             self.tool_path = self._find_ghidra_home()
 
@@ -327,7 +328,10 @@ class GhidraAdapter(BaseAdapter):
             env["JAVA_HOME"] = java_home
             env["PATH"] = f"{java_bin_dir};{os.environ.get('PATH', '')}"
 
+        import time
+        t0 = time.time()
         result = self._run_process(cmd, cwd=workspace_path, timeout=analysis_timeout, env=env)
+        duration = round(time.time() - t0, 3)
 
         if result.returncode != 0:
             self.logger.warning(
@@ -335,13 +339,29 @@ class GhidraAdapter(BaseAdapter):
                 result.returncode,
                 (result.stderr or "")[-1000:],
             )
-            # Non-zero does not always mean failure — the script may have
-            # still produced output.
 
         # Parse script output
         findings = self._parse_results(output_file, sample_path)
+        funcs_recovered = sum(1 for f in findings if f.get("finding_type") == "function")
+
+        self.last_execution = {
+            "tool_name": "ghidra",
+            "tool_version": self.get_version() or "Ghidra Headless",
+            "command": " ".join(cmd),
+            "exit_code": result.returncode,
+            "duration_seconds": duration,
+            "stdout_snippet": (result.stdout or "")[:500],
+            "stderr_snippet": (result.stderr or "")[:500],
+            "artifact_paths": [output_file] if os.path.isfile(output_file) else [],
+            "functions_recovered": funcs_recovered,
+            "zero_functions_reason": "Ghidra headless completed but zero functions were recovered in JSON export" if funcs_recovered == 0 else None,
+            "findings_count": len(findings),
+            "parsing_status": "success" if os.path.isfile(output_file) else "output_missing",
+        }
+
         self.logger.info(
-            "Ghidra produced %d finding(s) for %s", len(findings), sample_path
+            "Ghidra produced %d finding(s) for %s (functions: %d)",
+            len(findings), sample_path, funcs_recovered,
         )
         return findings
 

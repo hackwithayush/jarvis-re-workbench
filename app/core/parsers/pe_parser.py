@@ -181,6 +181,9 @@ class PEParser:
             "<HHIIIHH", self.data, coff_offset
         )
 
+        now = datetime.now(timezone.utc)
+        now_ts = int(now.timestamp())
+
         try:
             dt = datetime.fromtimestamp(timestamp, tz=timezone.utc)
             dt_str = dt.isoformat()
@@ -188,25 +191,60 @@ class PEParser:
             dt_str = f"Invalid timestamp ({timestamp})"
         self.compilation_timestamp = dt_str
 
-        is_suspicious_time = timestamp == 0 or timestamp > 2000000000 or timestamp < 600000000
+        # Evaluate timestamp plausibility: allow 1 day buffer for timezone discrepancies
+        is_future = timestamp > (now_ts + 86400)
+        is_ancient = 0 < timestamp < 600000000  # Prior to 1989
+        is_zero = timestamp == 0
+
         self.findings.append(
             Finding(
                 sample_sha256=self.sha256,
                 source_tool="pe_parser",
                 finding_type=FindingType.COMPILER,
+                address_or_location=f"0x{coff_offset + 4:08X}",
                 name="coff_compilation_timestamp",
                 description=f"COFF Compilation Time: {dt_str} (Unix: {timestamp})",
-                confidence=0.90 if not is_suspicious_time else 0.70,
-                verification_status=FindingStatus.CONFIRMED if not is_suspicious_time else FindingStatus.FLAGGED,
+                confidence=0.90 if not (is_future or is_ancient or is_zero) else 0.70,
+                confidence_reasoning="Directly unpacked from COFF FileHeader TimeDateStamp field.",
+                verification_status=FindingStatus.CONFIRMED if not (is_future or is_ancient or is_zero) else FindingStatus.FLAGGED,
                 raw_data={
                     "timestamp": timestamp,
                     "timestamp_iso": dt_str,
                     "machine": machine,
                     "num_sections": num_sections,
                     "characteristics": characteristics,
+                    "is_future": is_future,
+                    "is_ancient": is_ancient,
+                    "is_zero": is_zero,
                 },
             )
         )
+
+        if is_future:
+            self.findings.append(
+                Finding(
+                    sample_sha256=self.sha256,
+                    source_tool="pe_parser",
+                    finding_type=FindingType.ANOMALY,
+                    address_or_location=f"0x{coff_offset + 4:08X}",
+                    name="future_compilation_timestamp",
+                    description=(
+                        f"Implausible future COFF compilation timestamp: {dt_str} "
+                        f"(current analysis time: {now.strftime('%Y-%m-%d')}). "
+                        "May indicate build clock skew, deterministic/reproducible build hash embedding, "
+                        "or deliberate header manipulation. Not inherently malicious."
+                    ),
+                    confidence=0.88,
+                    confidence_reasoning="Confirmed timestamp exceeds current wall-clock date by more than 24 hours.",
+                    verification_status=FindingStatus.FLAGGED,
+                    raw_data={
+                        "timestamp": timestamp,
+                        "timestamp_iso": dt_str,
+                        "analysis_time_iso": now.isoformat(),
+                        "delta_seconds": timestamp - now_ts,
+                    },
+                )
+            )
 
     def _parse_optional_header(self) -> None:
         opt_offset = self.pe_offset + 24
@@ -559,35 +597,106 @@ class PEParser:
 
         clr_offset = self.rva_to_offset(clr_rva)
         if not clr_offset or clr_offset + 72 > self.size:
+            self._add_warning("CLR runtime header RVA points beyond physical file bounds.")
             return
 
-        cb, major_rt, minor_rt, meta_rva, meta_sz, flags, ep_token = struct.unpack_from(
-            "<IIIIIII", self.data, clr_offset
-        )
+        # Microsoft CLI specification:
+        # cb (uint32), MajorRuntimeVersion (uint16), MinorRuntimeVersion (uint16),
+        # MetaData directory (uint32 RVA, uint32 size), Flags (uint32), EntryPointToken (uint32)
+        cb, major_rt, minor_rt = struct.unpack_from("<IHH", self.data, clr_offset)
 
+        # Handle legacy fixtures or non-standard emitters where major/minor were packed as 32-bit ints
+        if minor_rt == 0 and clr_offset + 28 <= self.size:
+            w1, w2 = struct.unpack_from("<II", self.data, clr_offset + 4)
+            if w1 in (1, 2, 4) and 0 < w2 <= 20:
+                major_rt = w1
+                minor_rt = w2
+                meta_rva, meta_sz, flags, ep_token = struct.unpack_from("<IIII", self.data, clr_offset + 12)
+            else:
+                meta_rva, meta_sz, flags, ep_token = struct.unpack_from("<IIII", self.data, clr_offset + 8)
+        else:
+            meta_rva, meta_sz, flags, ep_token = struct.unpack_from("<IIII", self.data, clr_offset + 8)
+
+        if cb < 72:
+            self._add_warning(f"Unusual CLR header size cb={cb} (standard is 72 bytes).")
+
+        # Distinguish PE Machine architecture from CLR target architecture
         is_il_only = bool(flags & 0x00000001)
         is_32bit_req = bool(flags & 0x00000002)
+        is_32bit_pref = bool(flags & 0x00020000)
+
+        if not is_il_only:
+            clr_arch = "Mixed Native / Managed CIL"
+        elif is_32bit_req:
+            clr_arch = "Managed x86 (32-bit Required)"
+        elif is_32bit_pref:
+            clr_arch = "Managed AnyCPU (32-bit Preferred)"
+        else:
+            clr_arch = "Managed AnyCPU (Pure IL)"
+
+        # Strict bounds verification for CLR Metadata directory
+        meta_offset = self.rva_to_offset(meta_rva) if meta_rva else None
+        meta_valid = True
+        meta_error = None
+
+        if meta_rva == 0 or meta_sz == 0:
+            meta_valid = False
+            meta_error = "CLR Metadata directory has zero size or zero RVA."
+        elif meta_offset is None:
+            meta_valid = False
+            meta_error = f"CLR Metadata RVA 0x{meta_rva:08X} does not map to any valid section physical offset."
+        elif meta_offset + meta_sz > self.size:
+            meta_valid = False
+            meta_error = (
+                f"CLR Metadata at offset 0x{meta_offset:08X} with size {meta_sz:,} bytes "
+                f"extends beyond file boundary ({self.size:,} bytes)."
+            )
 
         self.findings.append(
             Finding(
                 sample_sha256=self.sha256,
                 source_tool="pe_parser",
                 finding_type=FindingType.COMPILER,
+                address_or_location=f"0x{clr_rva:08X}",
                 name="dotnet_clr_header",
                 description=(
                     f".NET CLR Runtime Header v{major_rt}.{minor_rt} "
-                    f"({'IL-Only' if is_il_only else 'Mixed Native/IL'}, "
-                    f"{'32-bit Required' if is_32bit_req else 'Any-CPU/64-bit'}), "
-                    f"Metadata RVA: 0x{meta_rva:08X} ({meta_sz:,} bytes)"
+                    f"[{clr_arch}], Metadata RVA: 0x{meta_rva:08X} ({meta_sz:,} bytes)"
                 ),
-                confidence=1.0,
-                verification_status=FindingStatus.CONFIRMED,
+                confidence=1.0 if meta_valid else 0.70,
+                confidence_reasoning="Directly unpacked from IMAGE_COR20_HEADER using Microsoft CLI specification.",
+                verification_status=FindingStatus.CONFIRMED if meta_valid else FindingStatus.FLAGGED,
                 raw_data={
                     "runtime_version": f"{major_rt}.{minor_rt}",
                     "flags": flags,
+                    "clr_target_arch": clr_arch,
                     "metadata_rva": meta_rva,
                     "metadata_size": meta_sz,
+                    "metadata_offset": meta_offset,
                     "entry_token": ep_token,
+                    "metadata_valid": meta_valid,
                 },
             )
         )
+
+        if not meta_valid and meta_error:
+            self.findings.append(
+                Finding(
+                    sample_sha256=self.sha256,
+                    source_tool="pe_parser",
+                    finding_type=FindingType.ANOMALY,
+                    address_or_location=f"0x{clr_rva:08X}",
+                    name="clr_metadata_boundary_violation",
+                    description=meta_error,
+                    confidence=0.95,
+                    confidence_reasoning="Structural validation check failed between CLR Metadata directory and physical file bounds.",
+                    verification_status=FindingStatus.FLAGGED,
+                    raw_data={
+                        "meta_rva": meta_rva,
+                        "meta_sz": meta_sz,
+                        "meta_offset": meta_offset,
+                        "file_size": self.size,
+                        "reason": meta_error,
+                    },
+                )
+            )

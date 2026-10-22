@@ -67,6 +67,10 @@ class BinaryAnalyzer:
         self.functions: List[FunctionDetails] = []
         self.imphash: Optional[str] = None
         self.compilation_timestamp: Optional[str] = None
+        self.tool_executions: Dict[str, Any] = {}
+        self.ai_hypotheses: List[Any] = []
+        self.assessment: Dict[str, Any] = {}
+        self.string_stats: Dict[str, Any] = {}
 
     def analyze(self, options: Optional[Dict[str, Any]] = None) -> Tuple[SampleInfo, List[Finding]]:
         """Run complete static analysis pass on the sample."""
@@ -158,6 +162,7 @@ class BinaryAnalyzer:
         # 4. Printable ASCII & UTF-16LE String Extraction
         string_extractor = StringExtractor(data, hashes["sha256"])
         string_findings = string_extractor.extract()
+        self.string_stats = string_extractor.stats
         findings.extend(string_findings)
 
         # 5. External Tool Adapters Integration
@@ -168,6 +173,13 @@ class BinaryAnalyzer:
             if die_adapter.is_available():
                 try:
                     die_raw = die_adapter.analyze(self.file_path, temp_ws)
+                    self.tool_executions["die"] = {
+                        "tool_name": "die",
+                        "tool_version": die_adapter.get_version() or "diec-cli",
+                        "exit_code": 0,
+                        "findings_count": len(die_raw),
+                        "parsing_status": "success",
+                    }
                     for item in die_raw:
                         ft = item.get("finding_type", "metadata")
                         mapped_type = FindingType.COMPILER if "compiler" in ft else (
@@ -180,21 +192,27 @@ class BinaryAnalyzer:
                                 source_tool="die",
                                 tool_version=die_adapter.get_version() or "diec",
                                 finding_type=mapped_type,
+                                address_or_location="pe_header:signatures",
                                 name=item.get("name", "die_detect"),
                                 description=item.get("description", "DIE Detection"),
                                 confidence=item.get("confidence", 0.85),
+                                confidence_reasoning="Detect It Easy signature match against compiler/packer database.",
                                 verification_status=FindingStatus.CONFIRMED,
                                 raw_data=item.get("raw_data", {}),
                             )
                         )
                 except Exception as e:
                     logger.warning("DIE analysis execution error: %s", e)
+                    self.tool_executions["die"] = {"tool_name": "die", "error_message": str(e), "parsing_status": "error"}
 
             # radare2 disassembly & functions
             r2_adapter = Radare2Adapter()
             if r2_adapter.is_available():
                 try:
                     r2_raw = r2_adapter.analyze(self.file_path, temp_ws)
+                    if r2_adapter.last_execution:
+                        self.tool_executions["radare2"] = r2_adapter.last_execution
+
                     for item in r2_raw:
                         ft_str = item.get("finding_type", "function")
                         mapped_type = FindingType.FUNCTION if ft_str == "function" else FindingType.METADATA
@@ -221,10 +239,11 @@ class BinaryAnalyzer:
                                 source_tool="radare2",
                                 tool_version=r2_adapter.get_version() or "r2",
                                 finding_type=mapped_type,
-                                address_or_location=addr,
+                                address_or_location=addr or "binary:metadata",
                                 name=f_name,
                                 description=item.get("description", "radare2 artifact"),
                                 confidence=item.get("confidence", 0.88),
+                                confidence_reasoning="Disassembly and binary analysis derived from radare2 / rabin2 engine.",
                                 verification_status=FindingStatus.CONFIRMED,
                                 raw_data=raw_d,
                             )
@@ -239,6 +258,8 @@ class BinaryAnalyzer:
                         except Exception as enrich_err:
                             logger.warning("radare2 function enrichment failed: %s", enrich_err)
                 except Exception as e:
+                    logger.warning("radare2 analysis execution error: %s", e)
+                    self.tool_executions["radare2"] = {"tool_name": "radare2", "error_message": str(e), "parsing_status": "error"}
                     logger.warning("radare2 analysis execution error: %s", e)
 
             # ILSpy / dnSpy for .NET Assemblies
@@ -404,4 +425,16 @@ class BinaryAnalyzer:
         finally:
             shutil.rmtree(temp_ws, ignore_errors=True)
 
-        return sample_info, findings
+        # Correlate findings and generate coverage-calibrated assessment
+        from app.core.evidence_engine import EvidenceCorrelationEngine
+        deduped_findings, self.ai_hypotheses, self.assessment = EvidenceCorrelationEngine.correlate(
+            findings=findings,
+            imphash=self.imphash,
+            entropy=overall_entropy,
+            is_dotnet=is_dotnet,
+            functions_count=len(self.functions),
+            dynamic_executed=False,
+            tool_executions=self.tool_executions,
+        )
+
+        return sample_info, deduped_findings
