@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from enum import Enum
 import uuid
 from typing import Any, Dict, List, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, computed_field
 
 
 class ToolExecutionState(str, Enum):
@@ -220,5 +220,216 @@ class AnalysisReport(BaseModel):
     tool_executions: Dict[str, ToolExecutionRecord] = Field(default_factory=dict)
     ai_hypotheses: List[AIHypothesis] = Field(default_factory=list)
     assessment: Optional[Dict[str, Any]] = None
-    limitations: List[str]
+    limitations: List[str] = Field(default_factory=list)
     generated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+# ---------------------------------------------------------------------------
+# Software Knowledge Graph & Reconstruction Models
+# ---------------------------------------------------------------------------
+
+class EvidenceStatus(str, Enum):
+    OBSERVED = "observed"
+    STATICALLY_INFERRED = "statically_inferred"
+    DYNAMICALLY_OBSERVED = "dynamically_observed"
+    UNVERIFIED = "unverified"
+
+
+class RequirementClassification(str, Enum):
+    VERIFIED_FROM_EVIDENCE = "verified_from_evidence"
+    STRONGLY_INFERRED = "strongly_inferred"
+    PROPOSED_REPLACEMENT = "proposed_replacement"
+    UNKNOWN_REQUIRING_INPUT = "unknown_requiring_input"
+
+
+class GraphNode(BaseModel):
+    id: str
+    label: str
+    node_type: str  # module, component, class, function, endpoint, storage, workflow, external_api
+    subsystem: Optional[str] = "core"
+    description: Optional[str] = None
+    source_tool: str = "reconstruction_engine"
+    source_location: Optional[str] = None
+    evidence_status: EvidenceStatus = EvidenceStatus.STATICALLY_INFERRED
+    confidence: float = 0.85
+    properties: Dict[str, Any] = Field(default_factory=dict)
+
+    @property
+    def type(self) -> str:
+        return self.node_type
+
+
+class GraphEdge(BaseModel):
+    source_id: str
+    target_id: str
+    relation: str  # calls, depends_on, instantiates, writes_to, reads_from, invokes_api, triggers_transition
+    evidence_reference: Optional[str] = None
+    confidence: float = 0.85
+
+
+class KnowledgeGraphData(BaseModel):
+    graph_id: str = Field(default_factory=lambda: uuid.uuid4().hex[:12])
+    sample_sha256: str
+    nodes: List[GraphNode] = Field(default_factory=list)
+    edges: List[GraphEdge] = Field(default_factory=list)
+    subsystems: List[str] = Field(default_factory=list)
+    entry_points: List[str] = Field(default_factory=list)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+    @computed_field
+    @property
+    def node_count(self) -> int:
+        return len(self.nodes)
+
+    @computed_field
+    @property
+    def edge_count(self) -> int:
+        return len(self.edges)
+
+
+class ReconstructionRequirement(BaseModel):
+    id: str = Field(default_factory=lambda: f"req_{uuid.uuid4().hex[:8]}")
+    section: str
+    title: str
+    description: str
+    classification: RequirementClassification = RequirementClassification.VERIFIED_FROM_EVIDENCE
+    evidence_sources: List[str] = Field(default_factory=list)
+    confidence: float = 0.90
+
+
+class ReconstructionSpecification(BaseModel):
+    spec_id: str = Field(default_factory=lambda: uuid.uuid4().hex[:12])
+    sample_sha256: str
+    project_name: str
+    product_purpose: str
+    functional_requirements: List[ReconstructionRequirement] = Field(default_factory=list)
+    features_and_workflows: List[ReconstructionRequirement] = Field(default_factory=list)
+    system_architecture: List[ReconstructionRequirement] = Field(default_factory=list)
+    api_contracts_and_data_models: List[ReconstructionRequirement] = Field(default_factory=list)
+    ui_behavior_specs: List[ReconstructionRequirement] = Field(default_factory=list)
+    storage_and_config: List[ReconstructionRequirement] = Field(default_factory=list)
+    error_handling_and_performance: List[ReconstructionRequirement] = Field(default_factory=list)
+    security_and_privacy: List[ReconstructionRequirement] = Field(default_factory=list)
+    acceptance_criteria: List[ReconstructionRequirement] = Field(default_factory=list)
+    known_unknowns: List[ReconstructionRequirement] = Field(default_factory=list)
+    target_framework: str = "python_fastapi"
+    approved: bool = False
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+    @computed_field
+    @property
+    def sections(self) -> Dict[str, List[ReconstructionRequirement]]:
+        return {
+            "1. Executive Summary & Software Intent": self.functional_requirements,
+            "2. Observable Behaviors vs Replaced Capabilities": self.features_and_workflows,
+            "3. Component Architecture & Subsystems": self.system_architecture,
+            "4. Data Models, Storage & State Flow": self.api_contracts_and_data_models,
+            "5. Interfaces, Endpoints & Data Contracts": self.ui_behavior_specs,
+            "6. External Dependencies & Clean-Room Replacements": self.storage_and_config,
+            "7. Verification & Behavioral Conformance Criteria": self.acceptance_criteria,
+            "8. Non-functional, Performance & Scalability Requirements": self.error_handling_and_performance,
+            "9. Ethical, Safety, Privacy & Clean-Room Boundaries": self.security_and_privacy,
+            "10. Step-by-Step Construction Roadmap": self.known_unknowns,
+        }
+
+    @property
+    def requirements(self) -> List[ReconstructionRequirement]:
+        return (
+            self.functional_requirements
+            + self.features_and_workflows
+            + self.system_architecture
+            + self.api_contracts_and_data_models
+            + self.ui_behavior_specs
+            + self.storage_and_config
+            + self.error_handling_and_performance
+            + self.security_and_privacy
+            + self.acceptance_criteria
+            + self.known_unknowns
+        )
+
+
+class GeneratedProject(BaseModel):
+    project_id: str = Field(default_factory=lambda: uuid.uuid4().hex[:10])
+    spec_id: str
+    name: str
+    target_framework: str
+    workspace_dir: str
+    source_files: Dict[str, str] = Field(default_factory=dict)
+    test_files: Dict[str, str] = Field(default_factory=dict)
+    config_files: Dict[str, str] = Field(default_factory=dict)
+    manifest_file: str = "requirements.txt"
+    documentation: Dict[str, str] = Field(default_factory=dict)
+    clean_room_verified: bool = True
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+    @property
+    def project_path(self) -> str:
+        return self.workspace_dir
+
+    @computed_field
+    @property
+    def files_generated(self) -> List[str]:
+        return (
+            list(self.source_files.keys())
+            + [f"tests/{f}" for f in self.test_files.keys()]
+            + list(self.config_files.keys())
+            + list(self.documentation.keys())
+        )
+
+
+class BuildReport(BaseModel):
+    build_id: str = Field(default_factory=lambda: uuid.uuid4().hex[:10])
+    project_id: str
+    status: str = "pending"  # success, failed, in_progress
+    compilation_passed: bool = False
+    tests_total: int = 0
+    tests_passed: int = 0
+    tests_failed: int = 0
+    test_output: str = ""
+    build_logs: List[str] = Field(default_factory=list)
+    packaged_artifact_path: Optional[str] = None
+    repair_attempts: int = 0
+    limitations: List[str] = Field(default_factory=list)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+    @property
+    def compilation_success(self) -> bool:
+        return self.compilation_passed
+
+    @property
+    def overall_success(self) -> bool:
+        return self.status == "success"
+
+    @property
+    def artifact_path(self) -> Optional[str]:
+        return self.packaged_artifact_path
+
+
+class DifferentialTestResult(BaseModel):
+    test_id: str = Field(default_factory=lambda: uuid.uuid4().hex[:10])
+    project_id: str
+    reference_sample: str
+    matching_behaviors: List[str] = Field(default_factory=list)
+    discrepancies: List[str] = Field(default_factory=list)
+    uncovered_workflows: List[str] = Field(default_factory=list)
+    failed_acceptance_criteria: List[str] = Field(default_factory=list)
+    overall_conformance_score: float = 0.0
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+    @property
+    def total_checks(self) -> int:
+        return len(self.matching_behaviors) + len(self.discrepancies)
+
+    @property
+    def passed_checks(self) -> int:
+        return len(self.matching_behaviors)
+
+    @property
+    def conformance_score(self) -> float:
+        return self.overall_conformance_score
+
+    @property
+    def status(self) -> str:
+        if self.overall_conformance_score >= 0.8:
+            return "PASS"
+        return "CONFORMANT_WITH_TOLERANCES" if self.overall_conformance_score >= 0.5 else "FAIL"

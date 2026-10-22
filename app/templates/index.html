@@ -102,6 +102,7 @@
           <button class="tab-btn" data-tab="tabCfg">CFG Graph</button>
           <button class="tab-btn" data-tab="tabSandbox">Dynamic Sandbox</button>
           <button class="tab-btn" data-tab="tabAI">AI Analyst</button>
+          <button class="tab-btn" data-tab="tabReconstruct" style="color: #00ffaa; font-weight: 700;">Reconstruct & Build</button>
           <button class="tab-btn" data-tab="tabTools">Tool Ecosystem</button>
           <button class="tab-btn" data-tab="tabJson">Raw JSON</button>
         </div>
@@ -248,6 +249,92 @@
         <h3 style="font-size: 14px; margin-bottom: 12px; color: var(--accent);">AI Investigation Hypotheses & Evidence Assessment</h3>
         <div id="hypothesesContainer" style="margin-bottom: 20px;"></div>
         <div id="aiBriefContainer" class="code-viewer"></div>
+      </div>
+
+      <!-- Tab: Reconstruct & Build Workspace -->
+      <div id="tabReconstruct" class="tab-content">
+        <div style="background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; margin-bottom: 20px;">
+          <h2 style="font-size: 18px; color: #00ffaa; margin-top: 0; margin-bottom: 8px;">Autonomous Software Reconstruction & Creation Engine</h2>
+          <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 20px;">
+            Transform reverse-engineered program understanding into an independent, clean-room software project. Follows strict clean-room IP isolation without copying proprietary binaries or secrets.
+          </p>
+
+          <!-- 8-Stage Pipeline Visualizer -->
+          <div style="display: flex; gap: 8px; margin-bottom: 24px; overflow-x: auto; padding-bottom: 8px;">
+            <div id="step1" class="card" style="padding: 10px 14px; text-align: center; border-color: #00ffaa; min-width: 120px;">
+              <div style="font-size: 10px; color: #00ffaa; font-weight: 700;">STAGE 1</div>
+              <div style="font-size: 12px; font-weight: 600;">1. Analyze</div>
+            </div>
+            <div id="step2" class="card" style="padding: 10px 14px; text-align: center; min-width: 120px;">
+              <div style="font-size: 10px; color: var(--text-muted); font-weight: 700;">STAGE 2</div>
+              <div style="font-size: 12px; font-weight: 600;">2. Program Map</div>
+            </div>
+            <div id="step3" class="card" style="padding: 10px 14px; text-align: center; min-width: 120px;">
+              <div style="font-size: 10px; color: var(--text-muted); font-weight: 700;">STAGE 3</div>
+              <div style="font-size: 12px; font-weight: 600;">3. Specification</div>
+            </div>
+            <div id="step4" class="card" style="padding: 10px 14px; text-align: center; min-width: 120px;">
+              <div style="font-size: 10px; color: var(--text-muted); font-weight: 700;">STAGE 4</div>
+              <div style="font-size: 12px; font-weight: 600;">4. Approve Arch</div>
+            </div>
+            <div id="step5" class="card" style="padding: 10px 14px; text-align: center; min-width: 120px;">
+              <div style="font-size: 10px; color: var(--text-muted); font-weight: 700;">STAGE 5</div>
+              <div style="font-size: 12px; font-weight: 600;">5. Generate Code</div>
+            </div>
+            <div id="step6" class="card" style="padding: 10px 14px; text-align: center; min-width: 120px;">
+              <div style="font-size: 10px; color: var(--text-muted); font-weight: 700;">STAGE 6</div>
+              <div style="font-size: 12px; font-weight: 600;">6. Build</div>
+            </div>
+            <div id="step7" class="card" style="padding: 10px 14px; text-align: center; min-width: 120px;">
+              <div style="font-size: 10px; color: var(--text-muted); font-weight: 700;">STAGE 7</div>
+              <div style="font-size: 12px; font-weight: 600;">7. Test & Diff</div>
+            </div>
+            <div id="step8" class="card" style="padding: 10px 14px; text-align: center; min-width: 120px;">
+              <div style="font-size: 10px; color: var(--text-muted); font-weight: 700;">STAGE 8</div>
+              <div style="font-size: 12px; font-weight: 600;">8. Export ZIP</div>
+            </div>
+          </div>
+
+          <!-- Reconstruction Action Toolbar -->
+          <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 20px;">
+            <button class="btn" style="border-color: #00d2ff; color: #00d2ff;" onclick="buildKnowledgeGraph()">1. Build Knowledge Graph</button>
+            <button class="btn" style="border-color: #a78bfa; color: #a78bfa;" onclick="generateReconstructionSpec()">2. Generate Specification</button>
+            <button class="btn" style="border-color: #f59e0b; color: #f59e0b;" onclick="approveArchitectureSpec()">3. Approve Architecture</button>
+            <button class="btn" style="border-color: #00ffaa; color: #00ffaa;" onclick="generateCleanRoomProject()">4. Generate Project</button>
+            <button class="btn" style="border-color: #3b82f6; color: #3b82f6;" onclick="buildAndValidateProject()">5. Build & Test</button>
+            <button class="btn" style="border-color: #ec4899; color: #ec4899;" onclick="runDifferentialTests()">6. Differential Tests</button>
+            <button id="btnExportZip" class="btn" style="display: none; border-color: #10b981; color: #10b981;" onclick="downloadExportZip()">Download Project ZIP</button>
+          </div>
+
+          <!-- Interactive Workspace Panels -->
+          <div id="reconstructStatus" style="margin-bottom: 16px; font-size: 13px; font-weight: 600; color: #00ffaa;"></div>
+
+          <!-- Knowledge Graph View -->
+          <div id="graphPanel" style="display: none; margin-bottom: 20px;">
+            <h3 style="font-size: 14px; color: #00d2ff; margin-bottom: 8px;">Software Knowledge Graph & Architecture Map</h3>
+            <div id="graphMetrics" style="font-size: 12px; color: var(--text-muted); margin-bottom: 12px;"></div>
+            <pre id="graphMermaid" class="code-viewer" style="max-height: 250px;"></pre>
+          </div>
+
+          <!-- Specification View -->
+          <div id="specPanel" style="display: none; margin-bottom: 20px;">
+            <h3 style="font-size: 14px; color: #a78bfa; margin-bottom: 8px;">Clean-Room Reconstruction Specification (10 Sections)</h3>
+            <div id="specContent" class="code-viewer" style="max-height: 350px;"></div>
+          </div>
+
+          <!-- Project & Build Logs View -->
+          <div id="buildPanel" style="display: none; margin-bottom: 20px;">
+            <h3 style="font-size: 14px; color: #3b82f6; margin-bottom: 8px;">Build & Validation Agent Terminal</h3>
+            <div id="buildMetrics" style="font-size: 12px; margin-bottom: 10px;"></div>
+            <pre id="buildOutput" class="code-viewer" style="max-height: 300px;"></pre>
+          </div>
+
+          <!-- Differential Behavior Results -->
+          <div id="diffPanel" style="display: none; margin-bottom: 20px;">
+            <h3 style="font-size: 14px; color: #ec4899; margin-bottom: 8px;">Differential Behavioral Conformance Matrix</h3>
+            <div id="diffOutput" class="code-viewer" style="max-height: 250px;"></div>
+          </div>
+        </div>
       </div>
 
       <!-- Tab: Tool Ecosystem -->

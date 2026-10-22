@@ -9,10 +9,11 @@ import shutil
 import tempfile
 import uuid
 from typing import Any, Dict, List, Optional
+from pydantic import BaseModel
 
 from fastapi import Body, FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, PlainTextResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -21,8 +22,25 @@ from app.core.analyzer import BinaryAnalyzer
 from app.core.job_manager import AnalysisJob, JobStatus, job_manager
 from app.core.reporter import ReportGenerator
 from app.core.sandbox import ControlledSandbox
-from app.core.schema import AnalysisReport, Finding, FindingStatus, FindingType, FunctionDetails, ImportModule
+from app.core.schema import (
+    AnalysisReport,
+    BuildReport,
+    DifferentialTestResult,
+    Finding,
+    FindingStatus,
+    FindingType,
+    FunctionDetails,
+    GeneratedProject,
+    ImportModule,
+    KnowledgeGraphData,
+    ReconstructionSpecification,
+)
 from app.core.tools import ToolAuditor
+from app.core.knowledge_graph import KnowledgeGraphEngine
+from app.core.reconstruction_planner import ReconstructionPlanner
+from app.core.software_generator import SoftwareGenerator
+from app.core.build_agent import BuildAgent
+from app.core.differential_tester import DifferentialTester
 from adapters.ghidra_adapter import GhidraAdapter
 from adapters.angr_adapter import AngrAdapter
 
@@ -52,6 +70,11 @@ templates = Jinja2Templates(directory=TEMPLATES_DIR)
 # In-memory report cache and sample path storage for current session
 REPORTS_CACHE: Dict[str, AnalysisReport] = {}
 SAMPLES_STORAGE: Dict[str, str] = {}
+GRAPHS_CACHE: Dict[str, KnowledgeGraphData] = {}
+SPECS_CACHE: Dict[str, ReconstructionSpecification] = {}
+PROJECTS_CACHE: Dict[str, GeneratedProject] = {}
+BUILDS_CACHE: Dict[str, BuildReport] = {}
+DIFFS_CACHE: Dict[str, DifferentialTestResult] = {}
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -453,3 +476,169 @@ async def get_report_html(report_id: str):
 </body>
 </html>"""
     return HTMLResponse(content=html_doc)
+
+
+# ---------------------------------------------------------------------------
+# Autonomous Software Reconstruction & Creation Endpoints
+# ---------------------------------------------------------------------------
+
+@app.post("/api/reconstruct/graph/{report_id}", response_model=KnowledgeGraphData)
+async def generate_knowledge_graph(report_id: str):
+    """
+    Construct a persistent, queryable Software Knowledge Graph from an existing AnalysisReport.
+    Represents modules, components, functions, endpoints, and storage with evidence grounding.
+    """
+    report = REPORTS_CACHE.get(report_id)
+    if not report:
+        raise HTTPException(status_code=404, detail="Analysis report ID not found in session cache")
+
+    graph = KnowledgeGraphEngine.build_graph(report)
+    GRAPHS_CACHE[graph.graph_id] = graph
+    GRAPHS_CACHE[report_id] = graph
+    return graph
+
+
+@app.get("/api/reconstruct/graph/{report_id}/mermaid", response_class=PlainTextResponse)
+async def get_graph_mermaid(report_id: str):
+    """Retrieve Mermaid diagram flowchart representing the Software Knowledge Graph."""
+    graph = GRAPHS_CACHE.get(report_id)
+    if not graph:
+        report = REPORTS_CACHE.get(report_id)
+        if not report:
+            raise HTTPException(status_code=404, detail="Report ID not found")
+        graph = KnowledgeGraphEngine.build_graph(report)
+        GRAPHS_CACHE[report_id] = graph
+
+    mermaid_code = KnowledgeGraphEngine.to_mermaid(graph)
+    return PlainTextResponse(content=mermaid_code)
+
+
+@app.post("/api/reconstruct/spec/{report_id}", response_model=ReconstructionSpecification)
+async def generate_reconstruction_spec(
+    report_id: str,
+    target_framework: str = Query("python_fastapi", description="Target language / framework"),
+):
+    """
+    Synthesize an evidence-backed 10-section clean-room Reconstruction Specification.
+    Classifies every requirement with verified, inferred, proposed, or unknown states.
+    """
+    report = REPORTS_CACHE.get(report_id)
+    if not report:
+        raise HTTPException(status_code=404, detail="Analysis report ID not found in session cache")
+
+    graph = GRAPHS_CACHE.get(report_id)
+    spec = ReconstructionPlanner.generate_specification(report, graph=graph, target_framework=target_framework)
+    SPECS_CACHE[spec.spec_id] = spec
+    SPECS_CACHE[report_id] = spec
+    return spec
+
+
+@app.post("/api/reconstruct/approve/{spec_id}", response_model=ReconstructionSpecification)
+async def approve_reconstruction_spec(spec_id: str):
+    """Explicit analyst approval of the architectural reconstruction specification."""
+    spec = SPECS_CACHE.get(spec_id)
+    if not spec:
+        raise HTTPException(status_code=404, detail="Specification ID not found")
+    spec.approved = True
+    return spec
+
+
+class ProjectGenerationRequest(BaseModel):
+    spec_id: str
+    target_framework: Optional[str] = "python_fastapi"
+
+
+@app.post("/api/reconstruct/generate", response_model=GeneratedProject)
+async def generate_original_software(req: ProjectGenerationRequest):
+    """
+    Generate an independent, clean-room original software project based on an approved specification.
+    Produces real source files, dependency manifests, configuration, tests, and documentation.
+    """
+    spec = SPECS_CACHE.get(req.spec_id)
+    if not spec:
+        raise HTTPException(status_code=404, detail="Specification ID not found. Generate specification first.")
+
+    generator = SoftwareGenerator()
+    project = generator.generate_project(spec=spec, target_framework=req.target_framework)
+    PROJECTS_CACHE[project.project_id] = project
+    return project
+
+
+@app.post("/api/reconstruct/build/{project_id}", response_model=BuildReport)
+async def build_and_validate_project(project_id: str):
+    """
+    Execute static compilation, automated test battery, and packaging in an isolated project workspace.
+    """
+    project = PROJECTS_CACHE.get(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project ID not found")
+
+    agent = BuildAgent(timeout_sec=60)
+    report = agent.build_and_validate(project)
+    BUILDS_CACHE[report.build_id] = report
+    BUILDS_CACHE[project_id] = report
+    return report
+
+
+@app.post("/api/reconstruct/diff/{project_id}", response_model=DifferentialTestResult)
+async def run_differential_testing(project_id: str):
+    """
+    Execute differential behavior testing comparing reference observations with the reconstructed software.
+    """
+    project = PROJECTS_CACHE.get(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project ID not found")
+
+    spec = SPECS_CACHE.get(project.spec_id)
+    ref_name = spec.project_name if spec else "reference_sample"
+
+    tester = DifferentialTester()
+    result = tester.run_differential_test(project=project, reference_name=ref_name)
+    DIFFS_CACHE[result.test_id] = result
+    DIFFS_CACHE[project_id] = result
+    return result
+
+
+@app.get("/api/reconstruct/projects", response_model=List[GeneratedProject])
+async def list_generated_projects():
+    """List all clean-room projects generated in the current workbench session."""
+    return list(PROJECTS_CACHE.values())
+
+
+@app.get("/api/reconstruct/projects/{project_id}", response_model=GeneratedProject)
+async def get_generated_project(project_id: str):
+    """Retrieve details, source code tree, and manifest for a generated project."""
+    project = PROJECTS_CACHE.get(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project ID not found")
+    return project
+
+
+@app.get("/api/reconstruct/export/{project_id}")
+async def export_project_archive(project_id: str):
+    """Download the packaged distribution ZIP archive for a clean-room project."""
+    project = PROJECTS_CACHE.get(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project ID not found")
+
+    build = BUILDS_CACHE.get(project_id)
+    zip_path = build.packaged_artifact_path if build and build.packaged_artifact_path else None
+
+    # Fallback to creating a zip on-the-fly if not already packaged
+    if not zip_path or not os.path.isfile(zip_path):
+        import zipfile
+        zip_path = os.path.join(project.workspace_dir, f"{project.name}_export.zip")
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            for root, _, files in os.walk(project.workspace_dir):
+                for f in files:
+                    if f.endswith(".zip") or "__pycache__" in root or ".pytest_cache" in root:
+                        continue
+                    full_p = os.path.join(root, f)
+                    arcname = os.path.relpath(full_p, project.workspace_dir)
+                    zf.write(full_p, arcname)
+
+    return FileResponse(
+        path=zip_path,
+        filename=os.path.basename(zip_path),
+        media_type="application/zip",
+    )

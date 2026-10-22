@@ -630,3 +630,230 @@ function escapeHtml(str) {
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
 }
+
+// ---------------------------------------------------------------------------
+// Autonomous Software Reconstruction & Creation Handlers
+// ---------------------------------------------------------------------------
+
+let currentGraph = null;
+let currentSpec = null;
+let currentProject = null;
+
+function setStepActive(stepNum) {
+  for (let i = 1; i <= 8; i++) {
+    const el = document.getElementById(`step${i}`);
+    if (el) {
+      if (i <= stepNum) {
+        el.style.borderColor = "#00ffaa";
+        el.querySelector("div").style.color = "#00ffaa";
+      } else {
+        el.style.borderColor = "var(--border)";
+        el.querySelector("div").style.color = "var(--text-muted)";
+      }
+    }
+  }
+}
+
+async function buildKnowledgeGraph() {
+  if (!currentReport) return alert("Please upload and analyze a binary sample first.");
+  const statusEl = document.getElementById("reconstructStatus");
+  statusEl.innerText = "Constructing persistent Software Knowledge Graph from verified evidence...";
+
+  try {
+    const res = await fetch(`/api/reconstruct/graph/${currentReport.report_id}`, { method: "POST" });
+    if (!res.ok) throw new Error(await res.text());
+    currentGraph = await res.json();
+
+    setStepActive(2);
+    statusEl.innerText = `Knowledge Graph created: ${currentGraph.nodes.length} nodes, ${currentGraph.edges.length} relationships across ${currentGraph.subsystems.length} subsystems.`;
+
+    document.getElementById("graphPanel").style.display = "block";
+    document.getElementById("graphMetrics").innerHTML = `
+      <strong>Nodes:</strong> ${currentGraph.nodes.length} &bull; 
+      <strong>Edges:</strong> ${currentGraph.edges.length} &bull; 
+      <strong>Subsystems:</strong> ${currentGraph.subsystems.join(", ")} &bull; 
+      <strong>Entry Points:</strong> ${currentGraph.entry_points.join(", ")}
+    `;
+
+    // Fetch mermaid diagram
+    const mRes = await fetch(`/api/reconstruct/graph/${currentReport.report_id}/mermaid`);
+    if (mRes.ok) {
+      document.getElementById("graphMermaid").textContent = await mRes.text();
+    }
+  } catch (err) {
+    statusEl.innerHTML = `<span style="color: var(--danger)">Knowledge graph construction failed: ${escapeHtml(err.message)}</span>`;
+  }
+}
+
+async function generateReconstructionSpec() {
+  if (!currentReport) return alert("Please upload and analyze a sample first.");
+  const statusEl = document.getElementById("reconstructStatus");
+  statusEl.innerText = "Synthesizing clean-room 10-section Reconstruction Specification...";
+
+  try {
+    const res = await fetch(`/api/reconstruct/spec/${currentReport.report_id}?target_framework=python_fastapi`, { method: "POST" });
+    if (!res.ok) throw new Error(await res.text());
+    currentSpec = await res.json();
+
+    setStepActive(3);
+    statusEl.innerText = `Reconstruction Specification generated: Project '${currentSpec.project_name}' ready for architectural review.`;
+
+    document.getElementById("specPanel").style.display = "block";
+    const specContainer = document.getElementById("specContent");
+
+    let html = `
+      <div style="margin-bottom: 12px; font-weight: 700; color: #00ffaa;">Specification ID: ${currentSpec.spec_id} &bull; Target: ${currentSpec.target_framework}</div>
+      <p style="margin-bottom: 16px;"><strong>Purpose:</strong> ${escapeHtml(currentSpec.product_purpose)}</p>
+    `;
+
+    const sections = [
+      ["1. Purpose & Functional Requirements", currentSpec.functional_requirements],
+      ["2. Features & Workflows", currentSpec.features_and_workflows],
+      ["3. System Architecture", currentSpec.system_architecture],
+      ["4. API Contracts & Data Models", currentSpec.api_contracts_and_data_models],
+      ["5. UI Behavior Specs", currentSpec.ui_behavior_specs],
+      ["6. Storage & Config", currentSpec.storage_and_config],
+      ["7. Error Handling & Performance", currentSpec.error_handling_and_performance],
+      ["8. Security & Privacy", currentSpec.security_and_privacy],
+      ["9. Testable Acceptance Criteria", currentSpec.acceptance_criteria],
+      ["10. Known Unknowns & Open Behavior", currentSpec.known_unknowns],
+    ];
+
+    sections.forEach(([secTitle, reqs]) => {
+      html += `<div style="margin-top: 14px; font-weight: 600; color: #00d2ff; border-bottom: 1px solid var(--border); padding-bottom: 4px;">${secTitle}</div>`;
+      (reqs || []).forEach(r => {
+        const badgeColor = r.classification === "verified_from_evidence" ? "var(--success)" : (
+          r.classification === "strongly_inferred" ? "var(--accent)" : (
+            r.classification === "proposed_replacement" ? "#a78bfa" : "var(--warning)"
+          )
+        );
+        html += `
+          <div style="padding: 6px 0; font-size: 12px;">
+            <span style="font-weight: 600;">${escapeHtml(r.title)}</span>
+            <span style="font-size: 10px; padding: 2px 5px; border-radius: 4px; border: 1px solid ${badgeColor}; color: ${badgeColor}; margin-left: 8px;">${r.classification}</span>
+            <div style="color: var(--text-muted); margin-top: 2px;">${escapeHtml(r.description)}</div>
+          </div>
+        `;
+      });
+    });
+
+    specContainer.innerHTML = html;
+  } catch (err) {
+    statusEl.innerHTML = `<span style="color: var(--danger)">Specification generation failed: ${escapeHtml(err.message)}</span>`;
+  }
+}
+
+async function approveArchitectureSpec() {
+  if (!currentSpec) return alert("Please generate a specification first.");
+  const statusEl = document.getElementById("reconstructStatus");
+  statusEl.innerText = "Recording explicit analyst architectural approval...";
+
+  try {
+    const res = await fetch(`/api/reconstruct/approve/${currentSpec.spec_id}`, { method: "POST" });
+    if (!res.ok) throw new Error(await res.text());
+    currentSpec = await res.json();
+
+    setStepActive(4);
+    statusEl.innerHTML = `<span style="color: #00ffaa; font-weight: 700;">Architecture Approved! Specification validated for clean-room project generation.</span>`;
+  } catch (err) {
+    statusEl.innerHTML = `<span style="color: var(--danger)">Approval failed: ${escapeHtml(err.message)}</span>`;
+  }
+}
+
+async function generateCleanRoomProject() {
+  if (!currentSpec) return alert("Please generate and approve a specification first.");
+  const statusEl = document.getElementById("reconstructStatus");
+  statusEl.innerText = "Synthesizing clean-room original software source files, manifests, and test suites...";
+
+  try {
+    const res = await fetch(`/api/reconstruct/generate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ spec_id: currentSpec.spec_id, target_framework: currentSpec.target_framework })
+    });
+    if (!res.ok) throw new Error(await res.text());
+    currentProject = await res.json();
+
+    setStepActive(5);
+    statusEl.innerText = `Project '${currentProject.name}' generated in workspace: ${currentProject.workspace_dir}. Source modules: ${Object.keys(currentProject.source_files).length}, Tests: ${Object.keys(currentProject.test_files).length}.`;
+    document.getElementById("btnExportZip").style.display = "inline-block";
+  } catch (err) {
+    statusEl.innerHTML = `<span style="color: var(--danger)">Project generation failed: ${escapeHtml(err.message)}</span>`;
+  }
+}
+
+async function buildAndValidateProject() {
+  if (!currentProject) return alert("Please generate a project first.");
+  const statusEl = document.getElementById("reconstructStatus");
+  statusEl.innerText = "Build Agent compiling source files and running automated test battery...";
+
+  try {
+    const res = await fetch(`/api/reconstruct/build/${currentProject.project_id}`, { method: "POST" });
+    if (!res.ok) throw new Error(await res.text());
+    const build = await res.json();
+
+    setStepActive(6);
+    document.getElementById("buildPanel").style.display = "block";
+    document.getElementById("buildMetrics").innerHTML = `
+      <strong>Status:</strong> <span class="badge ${build.status === 'success' ? 'badge-success' : 'badge-danger'}">${build.status.toUpperCase()}</span> &bull; 
+      <strong>Compilation:</strong> ${build.compilation_passed ? 'PASSED' : 'FAILED'} &bull; 
+      <strong>Tests Total:</strong> ${build.tests_total} &bull; 
+      <strong>Tests Passed:</strong> ${build.tests_passed} &bull; 
+      <strong>Tests Failed:</strong> ${build.tests_failed}
+    `;
+
+    document.getElementById("buildOutput").textContent = build.build_logs.join("\n") + "\n\n=== TEST RUNNER OUTPUT ===\n" + build.test_output;
+
+    if (build.status === "success") {
+      statusEl.innerHTML = `<span style="color: #00ffaa; font-weight: 700;">Build & Test Successful! 100% tests passed. Distribution archive packaged.</span>`;
+    } else {
+      statusEl.innerHTML = `<span style="color: var(--danger); font-weight: 700;">Build failed or tests did not pass. Inspect build output logs.</span>`;
+    }
+  } catch (err) {
+    statusEl.innerHTML = `<span style="color: var(--danger)">Build execution failed: ${escapeHtml(err.message)}</span>`;
+  }
+}
+
+async function runDifferentialTests() {
+  if (!currentProject) return alert("Please generate and build a project first.");
+  const statusEl = document.getElementById("reconstructStatus");
+  statusEl.innerText = "Executing differential behavior testing against reference observations...";
+
+  try {
+    const res = await fetch(`/api/reconstruct/diff/${currentProject.project_id}`, { method: "POST" });
+    if (!res.ok) throw new Error(await res.text());
+    const diff = await res.json();
+
+    setStepActive(7);
+    document.getElementById("diffPanel").style.display = "block";
+    let diffHtml = `
+      <div style="font-weight: 700; color: #ec4899; margin-bottom: 8px;">Conformance Score: ${Math.round(diff.overall_conformance_score * 100)}%</div>
+      <div style="margin-bottom: 8px; font-weight: 600; color: var(--success);">Matching Behaviors (${diff.matching_behaviors.length}):</div>
+      <ul style="margin: 0 0 12px 20px; font-size: 12px;">
+        ${diff.matching_behaviors.map(m => `<li>${escapeHtml(m)}</li>`).join("")}
+      </ul>
+      <div style="margin-bottom: 8px; font-weight: 600; color: var(--warning);">Uncovered Workflows (${diff.uncovered_workflows.length}):</div>
+      <ul style="margin: 0 0 12px 20px; font-size: 12px;">
+        ${diff.uncovered_workflows.map(u => `<li>${escapeHtml(u)}</li>`).join("")}
+      </ul>
+    `;
+    if (diff.discrepancies.length > 0) {
+      diffHtml += `
+        <div style="margin-bottom: 8px; font-weight: 600; color: var(--danger);">Discrepancies (${diff.discrepancies.length}):</div>
+        <ul style="margin: 0 0 12px 20px; font-size: 12px;">
+          ${diff.discrepancies.map(d => `<li>${escapeHtml(d)}</li>`).join("")}
+        </ul>
+      `;
+    }
+    document.getElementById("diffOutput").innerHTML = diffHtml;
+    setStepActive(8);
+    statusEl.innerHTML = `<span style="color: #00ffaa; font-weight: 700;">Reconstruction Pipeline Complete! Clean-room project tested, verified, and ready for export.</span>`;
+  } catch (err) {
+    statusEl.innerHTML = `<span style="color: var(--danger)">Differential testing failed: ${escapeHtml(err.message)}</span>`;
+  }
+}
+
+function downloadExportZip() {
+  if (!currentProject) return alert("No active project generated.");
+  window.open(`/api/reconstruct/export/${currentProject.project_id}`, "_blank");
+}
