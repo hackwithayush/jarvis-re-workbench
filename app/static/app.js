@@ -14,43 +14,83 @@ document.addEventListener("DOMContentLoaded", () => {
 function initUpload() {
   const dropZone = document.getElementById("dropZone");
   const fileInput = document.getElementById("fileInput");
+  if (!dropZone || !fileInput) return;
 
-  dropZone.addEventListener("click", () => fileInput.click());
+  dropZone.addEventListener("click", (e) => {
+    // If the click did not originate on a child button
+    if (!e.target.closest("button")) {
+      fileInput.value = "";
+      fileInput.click();
+    }
+  });
 
   dropZone.addEventListener("dragover", (e) => {
     e.preventDefault();
+    e.stopPropagation();
     dropZone.classList.add("dragover");
   });
 
-  dropZone.addEventListener("dragleave", () => {
+  dropZone.addEventListener("dragleave", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
     dropZone.classList.remove("dragover");
   });
 
   dropZone.addEventListener("drop", (e) => {
     e.preventDefault();
+    e.stopPropagation();
     dropZone.classList.remove("dragover");
-    if (e.dataTransfer.files.length > 0) {
+    if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
       uploadFile(e.dataTransfer.files[0]);
     }
   });
 
   fileInput.addEventListener("change", () => {
-    if (fileInput.files.length > 0) {
+    if (fileInput.files && fileInput.files.length > 0) {
       uploadFile(fileInput.files[0]);
     }
   });
+
+  // Prevent browser default file drop navigation
+  window.addEventListener("dragover", (e) => e.preventDefault());
+  window.addEventListener("drop", (e) => e.preventDefault());
+}
+
+async function loadDemoSample() {
+  const progressBox = document.getElementById("progressBox");
+  const progressBar = document.getElementById("progressBar");
+  const progressText = document.getElementById("progressText");
+  const jobLog = document.getElementById("jobLog");
+
+  progressBox.style.display = "block";
+  progressBar.style.width = "20%";
+  progressText.textContent = "Loading verified workspace sample (service_daemon.exe)...";
+  if (jobLog) jobLog.textContent = "Dispatching analysis request to multi-engine background pipeline...";
+
+  try {
+    const res = await fetch("/api/sample/demo", { method: "POST" });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.detail || "Failed to trigger demo analysis");
+    }
+    const job = await res.json();
+    pollJob(job.job_id);
+  } catch (err) {
+    progressBox.style.display = "none";
+    alert(`Demo analysis error: ${err.message}`);
+  }
 }
 
 async function uploadFile(file) {
   const progressBox = document.getElementById("progressBox");
   const progressBar = document.getElementById("progressBar");
   const progressText = document.getElementById("progressText");
-  const resultsSection = document.getElementById("resultsSection");
+  const jobLog = document.getElementById("jobLog");
 
   progressBox.style.display = "block";
-  resultsSection.style.display = "none";
   progressBar.style.width = "20%";
   progressText.textContent = `Uploading ${file.name} to background analysis pipeline...`;
+  if (jobLog) jobLog.textContent = `File size: ${(file.size || 0).toLocaleString()} bytes`;
 
   const formData = new FormData();
   formData.append("file", file);
@@ -121,45 +161,73 @@ function pollJob(jobId) {
       if (!res.ok) return;
       const job = await res.json();
 
-      progressBar.style.width = `${job.progress_pct}%`;
-      progressText.textContent = job.current_stage;
+      progressBar.style.width = `${job.progress_pct || 20}%`;
+      progressText.textContent = job.current_stage || "Analyzing binary...";
       if (job.logs && job.logs.length > 0) {
         jobLog.textContent = job.logs[job.logs.length - 1];
       }
 
       if (job.status === "completed") {
         clearInterval(interval);
-        currentReport = job.report;
+        progressBar.style.width = "100%";
+        progressText.textContent = "Analysis complete! Rendering technical report...";
+
+        let rep = job.report;
+        if (!rep) {
+          try {
+            const resResult = await fetch(`/api/jobs/${jobId}/result`);
+            if (resResult.ok) {
+              rep = await resResult.json();
+            }
+          } catch (rErr) {
+            console.warn("Direct result fetch error:", rErr);
+          }
+        }
+
+        currentReport = rep;
         setTimeout(() => {
           progressBox.style.display = "none";
-          renderReport(currentReport);
-        }, 400);
+          if (currentReport) {
+            renderReport(currentReport);
+          }
+        }, 300);
       } else if (job.status === "failed") {
         clearInterval(interval);
         progressBox.style.display = "none";
-        alert(`Analysis failed: ${job.error}`);
+        alert(`Analysis failed: ${job.error || "Unknown analysis error"}`);
       }
     } catch (e) {
       console.error("Polling error:", e);
     }
-  }, 1000);
+  }, 800);
 }
 
 function renderReport(report) {
+  if (!report || !report.sample) {
+    console.error("renderReport received invalid report object:", report);
+    return;
+  }
   const resultsSection = document.getElementById("resultsSection");
-  resultsSection.style.display = "block";
+  if (resultsSection) resultsSection.style.display = "block";
 
   const s = report.sample;
   const sum = report.summary || {};
 
   // Metadata cards
-  document.getElementById("metaFilename").textContent = s.filename || "—";
-  document.getElementById("metaFormat").textContent = s.file_type || "—";
-  document.getElementById("metaArch").textContent = s.architecture || "—";
-  document.getElementById("metaSize").textContent = `${(s.file_size || 0).toLocaleString()} bytes`;
-  document.getElementById("metaEntropy").textContent = `${s.entropy} / 8.000`;
-  document.getElementById("metaImphash").textContent = s.imphash || "N/A";
-  document.getElementById("metaSha256").textContent = s.sha256 || "—";
+  const elFilename = document.getElementById("metaFilename");
+  if (elFilename) elFilename.textContent = s.filename || "—";
+  const elFormat = document.getElementById("metaFormat");
+  if (elFormat) elFormat.textContent = s.file_type || "—";
+  const elArch = document.getElementById("metaArch");
+  if (elArch) elArch.textContent = s.architecture || "—";
+  const elSize = document.getElementById("metaSize");
+  if (elSize) elSize.textContent = `${(s.file_size || 0).toLocaleString()} bytes`;
+  const elEntropy = document.getElementById("metaEntropy");
+  if (elEntropy) elEntropy.textContent = `${s.entropy != null ? Number(s.entropy).toFixed(3) : "0.000"} / 8.000`;
+  const elImphash = document.getElementById("metaImphash");
+  if (elImphash) elImphash.textContent = s.imphash || "N/A";
+  const elSha256 = document.getElementById("metaSha256");
+  if (elSha256) elSha256.textContent = s.sha256 || "—";
 
   // 1. Findings Table
   renderFindings(report.findings || []);
@@ -182,12 +250,19 @@ function renderReport(report) {
   renderAIAnalyst(report);
 
   // 7. Raw JSON
-  document.getElementById("rawJson").textContent = JSON.stringify(report, null, 2);
+  const elRaw = document.getElementById("rawJson");
+  if (elRaw) elRaw.textContent = JSON.stringify(report, null, 2);
 }
 
 function renderFindings(findings) {
   const tbody = document.getElementById("findingsTableBody");
+  if (!tbody) return;
   tbody.innerHTML = "";
+
+  if (!findings || findings.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 20px;">No findings recorded yet. Upload a binary to analyze.</td></tr>`;
+    return;
+  }
 
   findings.forEach((f) => {
     const tr = document.createElement("tr");
@@ -198,11 +273,11 @@ function renderFindings(findings) {
 
     tr.innerHTML = `
       <td><code>${escapeHtml(f.address_or_location || "N/A")}</code></td>
-      <td><span class="badge ${badgeClass}">${escapeHtml(f.finding_type)}</span></td>
-      <td><strong>${escapeHtml(f.name)}</strong></td>
+      <td><span class="badge ${badgeClass}">${escapeHtml(f.finding_type || "metadata")}</span></td>
+      <td><strong>${escapeHtml(f.name || "finding")}</strong></td>
       <td><code>${escapeHtml(f.source_tool || "builtin")}</code></td>
       <td><span class="badge ${badgeClass}">${confPct}%</span></td>
-      <td style="font-size: 12px; color: #b8c4e0;">${escapeHtml(f.description)}</td>
+      <td style="font-size: 12px; color: #b8c4e0;">${escapeHtml(f.description || "")}</td>
     `;
     tbody.appendChild(tr);
   });
@@ -210,23 +285,27 @@ function renderFindings(findings) {
 
 function renderSections(sections) {
   const tbody = document.getElementById("sectionsTableBody");
+  if (!tbody) return;
   tbody.innerHTML = "";
 
-  if (sections.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--text-muted);">No section headers present.</td></tr>`;
+  if (!sections || sections.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 20px;">No section headers present.</td></tr>`;
     return;
   }
 
   sections.forEach((sec) => {
     const tr = document.createElement("tr");
-    const entropyBadge = sec.entropy > 7.1 ? '<span class="badge badge-danger">High (Packed)</span>' : '<span class="badge badge-success">Normal</span>';
+    const ent = sec.entropy != null ? Number(sec.entropy) : 0;
+    const entropyBadge = ent > 7.1 ? '<span class="badge badge-danger">High (Packed)</span>' : '<span class="badge badge-success">Normal</span>';
+    const vSize = (sec.virtual_size != null ? Number(sec.virtual_size) : 0).toLocaleString();
+    const rSize = (sec.raw_size != null ? Number(sec.raw_size) : 0).toLocaleString();
 
     tr.innerHTML = `
-      <td><strong>${escapeHtml(sec.name)}</strong></td>
-      <td><code>${escapeHtml(sec.virtual_address)}</code></td>
-      <td>${sec.virtual_size.toLocaleString()} B</td>
-      <td>${sec.raw_size.toLocaleString()} B</td>
-      <td><code>${sec.entropy.toFixed(2)}</code> ${entropyBadge}</td>
+      <td><strong>${escapeHtml(sec.name || ".unknown")}</strong></td>
+      <td><code>${escapeHtml(sec.virtual_address || "0x0")}</code></td>
+      <td>${vSize} B</td>
+      <td>${rSize} B</td>
+      <td><code>${ent.toFixed(2)}</code> ${entropyBadge}</td>
       <td style="font-size: 11px; color: var(--text-muted);">${escapeHtml((sec.flags || []).join(", ") || "None")}</td>
     `;
     tbody.appendChild(tr);
@@ -235,25 +314,27 @@ function renderSections(sections) {
 
 function renderImportsAndExports(imports, exports) {
   const container = document.getElementById("importsContainer");
+  if (!container) return;
   container.innerHTML = "";
 
-  if (imports.length === 0) {
-    container.innerHTML = `<p style="color: var(--text-muted); font-size: 13px;">No import table symbols detected.</p>`;
+  if (!imports || imports.length === 0) {
+    container.innerHTML = `<p style="color: var(--text-muted); font-size: 13px; padding: 12px;">No import table symbols detected.</p>`;
   } else {
     imports.forEach((mod) => {
       const card = document.createElement("div");
       card.style.cssText = "background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; margin-bottom: 12px;";
 
-      const suspCount = mod.functions.filter(f => f.is_suspicious).length;
+      const fns = mod.functions || [];
+      const suspCount = fns.filter(f => f && f.is_suspicious).length;
       card.innerHTML = `
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-          <strong style="color: var(--accent); font-size: 13px;">${escapeHtml(mod.module_name)}</strong>
-          <span style="font-size: 11px; color: var(--text-muted);">${mod.functions.length} function(s) ${suspCount > 0 ? `<span class="badge badge-danger">${suspCount} Suspicious</span>` : ''}</span>
+          <strong style="color: var(--accent); font-size: 13px;">${escapeHtml(mod.module_name || "module")}</strong>
+          <span style="font-size: 11px; color: var(--text-muted);">${fns.length} function(s) ${suspCount > 0 ? `<span class="badge badge-danger">${suspCount} Suspicious</span>` : ''}</span>
         </div>
         <div style="display: flex; flex-wrap: wrap; gap: 6px;">
-          ${mod.functions.map(fn => `
-            <span class="badge ${fn.is_suspicious ? 'badge-danger' : 'badge-info'}" title="${escapeHtml(fn.category || '')}">
-              ${escapeHtml(fn.name)}
+          ${fns.map(fn => `
+            <span class="badge ${fn && fn.is_suspicious ? 'badge-danger' : 'badge-info'}" title="${escapeHtml(fn && fn.category || '')}">
+              ${escapeHtml(fn ? fn.name : '')}
             </span>
           `).join("")}
         </div>
@@ -264,16 +345,17 @@ function renderImportsAndExports(imports, exports) {
 
   // Exports table
   const expTbody = document.getElementById("exportsTableBody");
+  if (!expTbody) return;
   expTbody.innerHTML = "";
-  if (exports.length === 0) {
-    expTbody.innerHTML = `<tr><td colspan="3" style="text-align: center; color: var(--text-muted);">No exported symbols.</td></tr>`;
+  if (!exports || exports.length === 0) {
+    expTbody.innerHTML = `<tr><td colspan="3" style="text-align: center; color: var(--text-muted); padding: 16px;">No exported symbols.</td></tr>`;
   } else {
     exports.forEach((e) => {
       const tr = document.createElement("tr");
       tr.innerHTML = `
-        <td><code>${e.ordinal}</code></td>
+        <td><code>${e.ordinal != null ? e.ordinal : "—"}</code></td>
         <td><strong>${escapeHtml(e.name || "N/A")}</strong></td>
-        <td><code>${escapeHtml(e.rva)}</code></td>
+        <td><code>${escapeHtml(e.rva || "0x0")}</code></td>
       `;
       expTbody.appendChild(tr);
     });
@@ -282,9 +364,10 @@ function renderImportsAndExports(imports, exports) {
 
 function renderFunctions(functions) {
   const list = document.getElementById("functionList");
+  if (!list) return;
   list.innerHTML = "";
 
-  if (functions.length === 0) {
+  if (!functions || functions.length === 0) {
     list.innerHTML = `<div style="padding: 12px; color: var(--text-muted); font-size: 12px;">No recovered functions.</div>`;
     return;
   }
@@ -380,22 +463,25 @@ async function explainCurrentDecompilation() {
 
 function renderAIAnalyst(report) {
   const container = document.getElementById("hypothesesContainer");
+  if (!container) return;
   container.innerHTML = "";
 
-  const hypotheses = report.ai_hypotheses || [];
+  const hypotheses = (report && report.ai_hypotheses) || [];
   if (hypotheses.length === 0) {
     container.innerHTML = `<p style="color: var(--text-muted); font-size: 13px;">No high-risk security hypotheses generated. Sample exhibits standard executable patterns.</p>`;
   } else {
     hypotheses.forEach((h) => {
       const card = document.createElement("div");
       card.style.cssText = "background: var(--surface); border-left: 4px solid var(--warning); border-radius: 4px; padding: 14px; margin-bottom: 12px;";
+      const conf = Math.round((h.confidence || 0) * 100);
+      const evIds = h.supporting_evidence_ids || [];
       card.innerHTML = `
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-          <strong style="color: var(--text); font-size: 14px;">${escapeHtml(h.title)}</strong>
-          <span class="badge badge-warning">${Math.round(h.confidence * 100)}% Confidence</span>
+          <strong style="color: var(--text); font-size: 14px;">${escapeHtml(h.title || "Hypothesis")}</strong>
+          <span class="badge badge-warning">${conf}% Confidence</span>
         </div>
-        <p style="font-size: 13px; color: #b8c4e0; margin-bottom: 8px;">${escapeHtml(h.description)}</p>
-        <div style="font-size: 11px; color: var(--text-muted);">Grounding Evidence: ${h.supporting_evidence_ids.map(id => `<code>${escapeHtml(id)}</code>`).join(" ")}</div>
+        <p style="font-size: 13px; color: #b8c4e0; margin-bottom: 8px;">${escapeHtml(h.description || "")}</p>
+        <div style="font-size: 11px; color: var(--text-muted);">Grounding Evidence: ${evIds.map(id => `<code>${escapeHtml(id)}</code>`).join(" ") || "None"}</div>
       `;
       container.appendChild(card);
     });
@@ -403,8 +489,10 @@ function renderAIAnalyst(report) {
 
   // Brief container
   const brief = document.getElementById("aiBriefContainer");
-  const assessment = report.summary && report.summary.assessment ? report.summary.assessment : {};
-  brief.textContent = JSON.stringify(assessment, null, 2);
+  if (brief) {
+    const assessment = (report && report.summary && report.summary.assessment) ? report.summary.assessment : (report && report.assessment ? report.assessment : {});
+    brief.textContent = JSON.stringify(assessment, null, 2);
+  }
 }
 
 async function runSandboxExecution() {

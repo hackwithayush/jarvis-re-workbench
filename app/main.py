@@ -183,6 +183,28 @@ async def create_analysis_job(
     return job
 
 
+@app.post("/api/sample/demo", response_model=AnalysisJob)
+async def analyze_demo_sample():
+    """Trigger analysis of the verified workspace sample service_daemon.exe."""
+    demo_candidates = [
+        os.path.join(SAMPLES_DIR, "service_daemon.exe"),
+        os.path.join(os.path.dirname(BASE_DIR), "workspace", "samples", "service_daemon.exe"),
+    ]
+    demo_path = None
+    for c in demo_candidates:
+        if os.path.isfile(c):
+            demo_path = c
+            break
+
+    if not demo_path:
+        raise HTTPException(status_code=404, detail="Demo binary 'service_daemon.exe' not found in workspace.")
+
+    job = job_manager.create_job(demo_path, "service_daemon.exe", options={})
+    SAMPLES_STORAGE[job.job_id] = demo_path
+    SAMPLES_STORAGE["service_daemon.exe"] = demo_path
+    return job
+
+
 @app.get("/api/jobs/{job_id}", response_model=AnalysisJob)
 async def get_job_status(job_id: str):
     """Poll progress, current stage, and logs for an ongoing analysis job."""
