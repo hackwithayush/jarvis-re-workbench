@@ -1,6 +1,6 @@
 {
   "release_version": "1.0.0",
-  "timestamp": "2026-10-23T17:02:13.912172+00:00",
+  "timestamp": "2026-10-23T17:16:10.923659+00:00",
   "build_status": "VERIFIED",
   "toolchain": {
     "python": {
@@ -27,28 +27,28 @@
   },
   "test_results": {
     "exit_code": 0,
-    "total_collected": 78,
-    "passed": 78,
+    "total_collected": 83,
+    "passed": 83,
     "failed": 0,
-    "duration_seconds": 57.09,
+    "duration_seconds": 77.54,
     "success": true
   },
   "archive_verification": {
     "valid": true,
-    "file_count": 973,
-    "uncompressed_bytes": 28307338,
-    "compressed_bytes": 15698559
+    "file_count": 173,
+    "uncompressed_bytes": 26883906,
+    "compressed_bytes": 14827456
   },
   "sha256_digests": {
     "jarvis-re-workbench/app/main.py": "e58af3310ecd7e89e991d9e4adf742203a0dfa078296e00fed2c6f1543b7a69b",
-    "jarvis-re-workbench/app/core/job_manager.py": "0061b76f741d94c1a4214fff7f381ce9c2590596e700f8368cb2cb96c6c79faa",
-    "jarvis-re-workbench/app/core/build_agent.py": "f12899fd28de7e6b122391b8ff4195057c93ff37f542926391d00f6843a55914",
-    "jarvis-re-workbench/app/core/differential_tester.py": "ec94c696841a6ee4c44d4b498735a20f1d9f9dff1a361dd41bb6fafe862c7081",
+    "jarvis-re-workbench/app/core/job_manager.py": "80f600a56ec5f478cdb7df3cbe8a757134b8b85f74b687d8d40a9563dc97bbf8",
+    "jarvis-re-workbench/app/core/build_agent.py": "e8c906fc01184e4c3c2639304675301825466c8d58bb7b0edd13de0e7c09a46f",
+    "jarvis-re-workbench/app/core/differential_tester.py": "66a75e83ad4f15cffc4557be599b89744bef65eedbaae0cf944cfb44970d4baa",
     "jarvis-re-workbench/app/core/knowledge_graph.py": "c77469c52f668f2131b92b6a6b9bfad379add791f8f58cf80c5f5ba1a9adae43",
     "jarvis-re-workbench/app/core/reconstruction_planner.py": "9e5cbedcb68d7c5f53adcdb0dcc42647cbc9933b44743500f7484f898992d17f",
     "jarvis-re-workbench/app/core/software_generator.py": "680311282accec10e82623178eab2a8158993694bb9f13052d428b886264b65d",
     "jarvis-re-workbench/workspace/samples/service_daemon.exe": "FILE_NOT_FOUND",
-    "jarvis-re-workbench-v1.zip": "4c00202b4ce8111f7a20f2d9685141cbc609620c5964807ba4f192a2ebe26ada"
+    "jarvis-re-workbench-v1.zip": "7bec147902f3b48168bec3fa600c2946f4ae254008b74e24cb9e2ee23cd76855"
   },
   "known_limitations": [
     "angr Unicorn engine requires native unicornlib.dll; symbolic analysis operates with fallback solver on Windows.",

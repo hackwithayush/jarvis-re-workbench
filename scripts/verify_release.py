@@ -86,6 +86,28 @@ def audit_toolchain() -> dict:
     return tools
 
 
+def package_clean_release() -> str:
+    """Create pure clean release zip excluding transient test workspaces and caches."""
+    exclude_dirs = {".git", "__pycache__", ".pytest_cache", "tmp", "temp"}
+    temp_zip = f"{RELEASE_ZIP_PATH}.tmp"
+    with zipfile.ZipFile(temp_zip, "w", zipfile.ZIP_DEFLATED) as zf:
+        for root, dirs, files in os.walk(BASE_DIR):
+            dirs[:] = [d for d in dirs if d not in exclude_dirs]
+            rel_root = os.path.relpath(root, BASE_DIR).replace("\\", "/")
+            if rel_root.startswith("workspace/projects") or rel_root.startswith("workspace/jobs"):
+                continue
+            for f in files:
+                if f.endswith((".pyc", ".pyo", ".tmp", ".lnk")):
+                    continue
+                if f.startswith(".") and f != ".gitignore":
+                    continue
+                full_p = os.path.join(root, f)
+                arc_name = os.path.relpath(full_p, BASE_DIR).replace("\\", "/")
+                zf.write(full_p, arc_name)
+    os.replace(temp_zip, RELEASE_ZIP_PATH)
+    return RELEASE_ZIP_PATH
+
+
 def verify_archive(archive_path: str) -> dict:
     """Test zip archive integrity and entry list."""
     if not os.path.isfile(archive_path):
@@ -169,8 +191,9 @@ def main():
     print(f"  - Test suite status: {'PASSED' if test_results['success'] else 'FAILED'}")
     print(f"  - Tests run: {test_results['passed']}/{test_results['total_collected']} passed in {test_results['duration_seconds']}s")
 
-    # 3. Archive Verification
-    print("\n[3/4] Verifying distribution package archive...")
+    # 3. Archive Packaging & Verification
+    print("\n[3/4] Packaging & verifying distribution release archive...")
+    package_clean_release()
     archive_status = verify_archive(RELEASE_ZIP_PATH)
     if archive_status.get("valid"):
         print(f"  - Archive integrity verified: {RELEASE_ZIP_PATH}")

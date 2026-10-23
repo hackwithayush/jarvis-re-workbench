@@ -30,6 +30,22 @@ logger = logging.getLogger("jarvis.re.jobs")
 
 
 class JobStatus(str, Enum):
+    """
+    JARVIS RE Workflow Lifecycle States:
+    - QUEUED: Job accepted and awaiting worker allocation.
+    - RUNNING: Active execution in progress.
+    - ANALYZING: Deep multi-engine reverse-engineering pass active.
+    - SPEC_REVIEW: Awaiting or undergoing analyst specification review.
+    - GENERATING: Synthesizing independent clean-room software project.
+    - BUILDING: Isolated compilation and build verification active.
+    - TESTING: Running automated test battery in sandbox.
+    - REPAIRING: Bounded autonomous repair loop active (max 3 retries).
+    - BLOCKED: Suspended awaiting external dependency or intervention.
+    - FAILED: Terminal execution failure.
+    - CANCELLED: Operator cancelled workflow.
+    - VERIFIED: Quality gates passed: compilation, 100% tests, and differential equivalence criteria met.
+    - COMPLETED: Terminal workflow execution finished (reports generated, artifacts persisted).
+    """
     QUEUED = "queued"
     RUNNING = "running"
     ANALYZING = "analyzing"
@@ -123,6 +139,16 @@ class AnalysisJob(BaseModel):
         if stage_desc:
             self.current_stage = stage_desc
             self.logs.append(f"[{datetime.now(timezone.utc).strftime('%H:%M:%S')}] {stage_desc}")
+
+    @property
+    def is_verified(self) -> bool:
+        """Indicates whether all verification and quality gates passed (static compilation, unit tests, differential equivalence)."""
+        return self.status == JobStatus.VERIFIED or (self.report is not None and getattr(self.report, "clean_room_verified", False))
+
+    @property
+    def is_terminal(self) -> bool:
+        """Indicates whether the workflow execution lifecycle has terminated."""
+        return self.status in {JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED}
 
 
 class JobManager:

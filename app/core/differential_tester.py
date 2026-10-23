@@ -191,9 +191,24 @@ class DifferentialTester:
         uncovered_workflows.append("Direct Win32 GUI hardware acceleration (reconstructed as cross-platform service).")
         uncovered_workflows.append("Obfuscated proprietary packing layers (normalized to portable clean source).")
 
-        passed_scenarios = sum(1 for s in scenarios if s["status"] == "PASS")
+        passed_scen_ids = [s["scenario_id"] for s in scenarios if s.get("status") == "PASS"]
+        failed_scen_ids = [s["scenario_id"] for s in scenarios if s.get("status") == "FAIL"]
+        blocked_scen_ids = [s["scenario_id"] for s in scenarios if s.get("status") == "BLOCKED"]
+        untested_workflows_list = [
+            "WF-UNTESTED-001: Proprietary external cloud telemetry ingestion (omitted by clean-room design).",
+            "WF-UNTESTED-002: Direct Win32 GUI hardware acceleration (reconstructed as cross-platform service).",
+            "WF-UNTESTED-003: Obfuscated proprietary packing layers (normalized to portable clean source).",
+        ]
+        breakdown = {
+            "passed": len(passed_scen_ids),
+            "failed": len(failed_scen_ids),
+            "blocked": len(blocked_scen_ids),
+            "untested": len(untested_workflows_list),
+            "total_evaluated": len(scenarios),
+        }
+
         total_scenarios = len(scenarios)
-        conformance_score = round(passed_scenarios / total_scenarios, 2) if total_scenarios > 0 else 0.0
+        conformance_score = round(len(passed_scen_ids) / total_scenarios, 2) if total_scenarios > 0 else 0.0
 
         return DifferentialTestResult(
             test_id=test_id,
@@ -204,5 +219,10 @@ class DifferentialTester:
             uncovered_workflows=uncovered_workflows,
             failed_acceptance_criteria=failed_criteria,
             scenarios=scenarios,
+            passed_scenarios=passed_scen_ids,
+            failed_scenarios=failed_scen_ids,
+            blocked_scenarios=blocked_scen_ids,
+            untested_scenarios=untested_workflows_list,
+            conformance_breakdown=breakdown,
             overall_conformance_score=conformance_score,
         )

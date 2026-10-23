@@ -427,6 +427,11 @@ class DifferentialTestResult(BaseModel):
     uncovered_workflows: List[str] = Field(default_factory=list)
     failed_acceptance_criteria: List[str] = Field(default_factory=list)
     scenarios: List[Dict[str, Any]] = Field(default_factory=list)
+    passed_scenarios: List[str] = Field(default_factory=list)
+    failed_scenarios: List[str] = Field(default_factory=list)
+    blocked_scenarios: List[str] = Field(default_factory=list)
+    untested_scenarios: List[str] = Field(default_factory=list)
+    conformance_breakdown: Dict[str, int] = Field(default_factory=dict)
     overall_conformance_score: float = 0.0
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
