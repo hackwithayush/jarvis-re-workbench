@@ -254,7 +254,7 @@ class BinaryAnalyzer:
                         try:
                             from app.core.disassembler import DisassemblyEngine
                             disasm_engine = DisassemblyEngine()
-                            self.functions = disasm_engine.enrich_functions(self.file_path, self.functions, limit=10)
+                            self.functions = disasm_engine.enrich_functions(self.file_path, self.functions, limit=5)
                         except Exception as enrich_err:
                             logger.warning("radare2 function enrichment failed: %s", enrich_err)
                 except Exception as e:

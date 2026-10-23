@@ -296,7 +296,15 @@
           </div>
 
           <!-- Reconstruction Action Toolbar -->
-          <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 20px;">
+          <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 20px;">
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <label for="targetFrameworkSelect" style="font-size: 12px; color: var(--text-muted);">Target Stack:</label>
+              <select id="targetFrameworkSelect" style="background: var(--surface-2); border: 1px solid var(--border); color: #00ffaa; padding: 6px 10px; border-radius: 6px; font-size: 12px; font-weight: 600;">
+                <option value="python_fastapi">Python (FastAPI + Pydantic)</option>
+                <option value="nodejs_typescript">Node.js (TypeScript / ES Module)</option>
+                <option value="go">Go (Golang Standard Library)</option>
+              </select>
+            </div>
             <button class="btn" style="border-color: #00d2ff; color: #00d2ff;" onclick="buildKnowledgeGraph()">1. Build Knowledge Graph</button>
             <button class="btn" style="border-color: #a78bfa; color: #a78bfa;" onclick="generateReconstructionSpec()">2. Generate Specification</button>
             <button class="btn" style="border-color: #f59e0b; color: #f59e0b;" onclick="approveArchitectureSpec()">3. Approve Architecture</button>

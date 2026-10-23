@@ -72,27 +72,40 @@ class DifferentialTester:
         source_code = " ".join(project.source_files.values())
 
         # Test Case 1: Health Status Conformance
-        if "get_status" in source_code and "health" in source_code:
+        has_health = (
+            ("get_status" in source_code or "getStatus" in source_code or "GetStatus" in source_code)
+            and "health" in source_code
+        )
+        if has_health:
             matching_behaviors.append("Health status endpoint returns operational status and application metrics.")
         else:
             discrepancies.append("Health status endpoint missing or non-conforming.")
             failed_criteria.append("System status reporting requirement.")
 
         # Test Case 2: Operation Execution & State Transition
-        if "execute_operation" in source_code and "TaskState.COMPLETED" in source_code:
+        has_exec = (
+            ("execute_operation" in source_code or "executeOperation" in source_code or "ExecuteOperation" in source_code)
+            and any(k in source_code for k in ("TaskState.COMPLETED", "TaskStateCompleted", "COMPLETED"))
+        )
+        if has_exec:
             matching_behaviors.append("Operation execution transitions to COMPLETED state with structured result payload.")
         else:
             discrepancies.append("Operation execution workflow does not match expected state transition.")
             failed_criteria.append("Operational workflow state transition.")
 
         # Test Case 3: Error Handling & Missing Resource Handling
-        if "HTTPException" in source_code and "404" in source_code:
+        has_err = any(k in source_code for k in ("HTTPException", "StatusNotFound", "writeHead(404", "status: 404")) and "404" in source_code
+        if has_err:
             matching_behaviors.append("Resource query gracefully raises HTTP 404 for nonexistent records.")
         else:
             discrepancies.append("Missing record lookup does not handle 404 exceptions appropriately.")
 
         # Test Case 4: Configuration & Environment Override
-        if "Settings" in source_code and "os.getenv" in source_code:
+        has_cfg = (
+            any(k in source_code for k in ("Settings", "config", "Config"))
+            and any(k in source_code for k in ("os.getenv", "process.env", "os.Getenv"))
+        )
+        if has_cfg:
             matching_behaviors.append("Configuration manager correctly supports environment variable overrides.")
         else:
             discrepancies.append("Configuration defaults lack dynamic environment variable binding.")

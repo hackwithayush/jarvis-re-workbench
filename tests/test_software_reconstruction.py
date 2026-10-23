@@ -322,3 +322,241 @@ def test_fastapi_reconstruction_workflow(mock_report):
     assert resp_export.status_code == 200
     assert resp_export.headers["content-type"] == "application/zip"
     assert len(resp_export.content) > 100
+
+
+def test_knowledge_graph_minimal_report():
+    """Verify KnowledgeGraphEngine handles minimal/empty analysis reports gracefully."""
+    sample = SampleInfo(
+        filename="minimal_elf",
+        sha256="e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        md5="d41d8cd98f00b204e9800998ecf8427e",
+        sha1="da39a3ee5e6b4b0d3255bfef95601890afd80709",
+        file_size=128,
+        file_type="ELF 64-bit LSB executable",
+        architecture="x86-64",
+        entropy=1.2,
+    )
+    report = AnalysisReport(
+        report_id="rep-min-01",
+        sample=sample,
+        summary={},
+        findings=[],
+        tools_audited={},
+        sections=[],
+        imports=[],
+        exports=[],
+        functions=[],
+        verdict="BENIGN",
+        verdict_confidence=0.99,
+    )
+
+    kg_engine = KnowledgeGraphEngine()
+    graph_data = kg_engine.build_graph(report)
+
+    assert graph_data.node_count == 1
+    assert graph_data.nodes[0].id == "app_root"
+    assert "minimal_elf" in graph_data.nodes[0].label
+    assert graph_data.entry_points == ["app_root"]
+
+    mermaid_diag = kg_engine.to_mermaid(graph_data)
+    assert "flowchart TD" in mermaid_diag
+    assert "minimal_elf" in mermaid_diag
+
+
+def test_reconstruction_planner_non_pe_format():
+    """Verify ReconstructionPlanner handles non-PE targets (e.g. Android APK/DEX or ELF)."""
+    sample = SampleInfo(
+        filename="MobileApp.apk",
+        sha256="1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+        md5="1234567890abcdef1234567890abcdef",
+        sha1="1234567890abcdef1234567890abcdef12345678",
+        file_size=5242880,
+        file_type="Android package (APK)",
+        architecture="Dalvik/ART",
+        entropy=7.4,
+    )
+    findings = [
+        Finding(
+            id="apk-f1",
+            sample_sha256=sample.sha256,
+            source_tool="jadx",
+            finding_type=FindingType.DECOMPILED_CODE,
+            name="MainActivity.java",
+            description="Main activity decompiled source",
+            confidence=0.95,
+            verification_status=FindingStatus.CONFIRMED,
+        )
+    ]
+    report = AnalysisReport(
+        report_id="rep-apk-01",
+        sample=sample,
+        summary={},
+        findings=findings,
+        tools_audited={"jadx": True},
+        sections=[],
+        imports=[],
+        exports=[],
+        functions=[],
+        verdict="LIKELY_BENIGN",
+        verdict_confidence=0.90,
+    )
+
+    planner = ReconstructionPlanner()
+    spec = planner.generate_specification(report, target_framework="python_fastapi")
+
+    assert spec.sample_sha256 == sample.sha256
+    assert "MobileApp" in spec.project_name
+    assert len(spec.functional_requirements) > 0
+    assert len(spec.sections) == 10
+
+
+def test_build_agent_syntax_error_resilience():
+    """Verify BuildAgent catches static syntax errors and reports failure accurately."""
+    temp_dir = tempfile.mkdtemp(prefix="jarvis_err_proj_")
+    bad_file = os.path.join(temp_dir, "broken_syntax.py")
+    with open(bad_file, "w", encoding="utf-8") as f:
+        f.write("def broken_func(:\n    return 42\n")
+
+    proj = GeneratedProject(
+        project_id="proj_bad_syntax",
+        spec_id="spec_test",
+        name="BrokenApp",
+        target_framework="python_fastapi",
+        workspace_dir=temp_dir,
+        source_files={"broken_syntax.py": "def broken_func(:\n    return 42\n"},
+        test_files={},
+        config_files={},
+        manifest_file="requirements.txt",
+        documentation={},
+        clean_room_verified=False,
+    )
+
+    agent = BuildAgent(timeout_sec=10)
+    report = agent.build_and_validate(proj)
+
+    assert report.compilation_passed is False
+    assert report.status == "failed"
+    assert any("Syntax error" in log or "ERROR" in log for log in report.build_logs)
+
+    shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def test_differential_tester_non_conforming_project():
+    """Verify DifferentialTester identifies discrepancies when required behaviors are absent."""
+    temp_dir = tempfile.mkdtemp(prefix="jarvis_nonconform_proj_")
+    empty_file = os.path.join(temp_dir, "empty_dummy.py")
+    with open(empty_file, "w", encoding="utf-8") as f:
+        f.write("# Empty stub without expected behaviors\npass\n")
+
+    proj = GeneratedProject(
+        project_id="proj_nonconform",
+        spec_id="spec_test",
+        name="EmptyApp",
+        target_framework="python_fastapi",
+        workspace_dir=temp_dir,
+        source_files={"empty_dummy.py": "pass"},
+        test_files={},
+        config_files={},
+        manifest_file="requirements.txt",
+        documentation={},
+        clean_room_verified=False,
+    )
+
+    tester = DifferentialTester()
+    result = tester.run_differential_test(proj, "reference_binary.exe")
+
+    assert result.overall_conformance_score < 0.50
+    assert len(result.discrepancies) > 0
+    assert len(result.failed_acceptance_criteria) > 0
+
+    shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def test_software_project_generation_nodejs(mock_report):
+    """Test clean-room generation, build, test, and packaging of a Node.js project."""
+    kg_engine = KnowledgeGraphEngine()
+    graph_data = kg_engine.build_graph(mock_report)
+    planner = ReconstructionPlanner()
+    spec = planner.generate_specification(mock_report, graph_data, target_framework="nodejs_typescript")
+
+    generator = SoftwareGenerator()
+    project = generator.generate_project(spec, target_framework="nodejs_typescript")
+
+    assert project.target_framework == "nodejs_typescript"
+    assert os.path.isdir(project.workspace_dir)
+
+    # Check Node.js files
+    expected_files = [
+        "package.json",
+        "README.md",
+        "config.js",
+        "models.js",
+        "storage.js",
+        "engine.js",
+        "server.js",
+        "tests/application.test.js",
+    ]
+    for rel_path in expected_files:
+        full_path = os.path.join(project.workspace_dir, rel_path)
+        assert os.path.isfile(full_path), f"Expected Node file {rel_path} was not created"
+
+    # Build and test with BuildAgent
+    build_agent = BuildAgent(timeout_sec=30)
+    build_report = build_agent.build_and_validate(project)
+
+    assert build_report.compilation_passed is True
+    assert build_report.tests_passed > 0
+    assert build_report.tests_failed == 0
+    assert build_report.status == "success"
+    assert build_report.packaged_artifact_path is not None
+    assert os.path.isfile(build_report.packaged_artifact_path)
+
+    # Check Differential Tester
+    diff_tester = DifferentialTester()
+    diff_res = diff_tester.run_differential_test(project, mock_report)
+    assert diff_res.overall_conformance_score >= 0.80
+
+
+def test_software_project_generation_go(mock_report):
+    """Test clean-room generation, build, test, and packaging of a Go project."""
+    kg_engine = KnowledgeGraphEngine()
+    graph_data = kg_engine.build_graph(mock_report)
+    planner = ReconstructionPlanner()
+    spec = planner.generate_specification(mock_report, graph_data, target_framework="go")
+
+    generator = SoftwareGenerator()
+    project = generator.generate_project(spec, target_framework="go")
+
+    assert project.target_framework == "go"
+    assert os.path.isdir(project.workspace_dir)
+
+    # Check Go files
+    expected_files = [
+        "go.mod",
+        "README.md",
+        "config.go",
+        "models.go",
+        "storage.go",
+        "engine.go",
+        "main.go",
+        "main_test.go",
+    ]
+    for rel_path in expected_files:
+        full_path = os.path.join(project.workspace_dir, rel_path)
+        assert os.path.isfile(full_path), f"Expected Go file {rel_path} was not created"
+
+    # Build and test with BuildAgent
+    build_agent = BuildAgent(timeout_sec=45)
+    build_report = build_agent.build_and_validate(project)
+
+    assert build_report.compilation_passed is True
+    assert build_report.tests_passed > 0
+    assert build_report.tests_failed == 0
+    assert build_report.status == "success"
+    assert build_report.packaged_artifact_path is not None
+    assert os.path.isfile(build_report.packaged_artifact_path)
+
+    # Check Differential Tester
+    diff_tester = DifferentialTester()
+    diff_res = diff_tester.run_differential_test(project, mock_report)
+    assert diff_res.overall_conformance_score >= 0.80

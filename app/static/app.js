@@ -690,8 +690,10 @@ async function generateReconstructionSpec() {
   const statusEl = document.getElementById("reconstructStatus");
   statusEl.innerText = "Synthesizing clean-room 10-section Reconstruction Specification...";
 
+  const targetFramework = document.getElementById("targetFrameworkSelect")?.value || "python_fastapi";
+
   try {
-    const res = await fetch(`/api/reconstruct/spec/${currentReport.report_id}?target_framework=python_fastapi`, { method: "POST" });
+    const res = await fetch(`/api/reconstruct/spec/${currentReport.report_id}?target_framework=${targetFramework}`, { method: "POST" });
     if (!res.ok) throw new Error(await res.text());
     currentSpec = await res.json();
 

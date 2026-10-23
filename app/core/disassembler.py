@@ -53,7 +53,7 @@ class DisassemblyEngine:
         if not self.r2_path or not os.path.isfile(sample_path):
             return None
 
-        cmd = [self.r2_path, "-qc", f"aaa; s {function_target}; pdfj", sample_path]
+        cmd = [self.r2_path, "-qc", f"s {function_target}; af; pdfj", sample_path]
         try:
             res = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
             if res.stdout.strip().startswith("{") and res.stdout.strip().endswith("}"):
@@ -72,7 +72,7 @@ class DisassemblyEngine:
         if not self.r2_path or not os.path.isfile(sample_path):
             return []
 
-        cmd = [self.r2_path, "-qc", f"aaa; s {function_target}; agj", sample_path]
+        cmd = [self.r2_path, "-qc", f"s {function_target}; af; agj", sample_path]
         cfg_blocks: List[CFGBlock] = []
 
         try:
@@ -114,7 +114,7 @@ class DisassemblyEngine:
         if not self.r2_path or not os.path.isfile(sample_path):
             return None
 
-        cmd = [self.r2_path, "-qc", f"aaa; s {function_target}; pdc", sample_path]
+        cmd = [self.r2_path, "-qc", f"s {function_target}; af; pdc", sample_path]
         try:
             res = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
             if res.returncode == 0 and res.stdout.strip():
