@@ -95,7 +95,7 @@ class Radare2Adapter(BaseAdapter):
             except Exception as err:
                 logger.warning(f"rabin2 info extraction failed: {err}")
 
-        # 2. Extract functions via r2 batch analysis: "aa; aflj"
+        # 2. Extract functions: fast rabin2 symbols/exports first (<0.3s), fallback to r2 batch analysis
         r2_cmd = [self.tool_path, "-qc", "aa; aflj", sample_path]
         t0 = time.time()
         funcs_recovered = 0
@@ -105,46 +105,119 @@ class Radare2Adapter(BaseAdapter):
         stderr_snip = ""
         parsing_status = "unparsed"
 
-        try:
-            res = self._run_process(r2_cmd, timeout=self.timeout)
-            exit_code = res.returncode
-            stdout_snip = (res.stdout or "")[:500]
-            stderr_snip = (res.stderr or "")[:500]
-            raw_out = res.stdout.strip()
+        # Fast path: Extract functions via rabin2 symbols/exports if binary contains symbols
+        if os.path.isfile(rabin2_path):
+            try:
+                res_sym = self._run_process([rabin2_path, "-j", "-s", sample_path], timeout=min(self.timeout, 5))
+                if res_sym.returncode == 0 and res_sym.stdout.strip():
+                    sym_data = json.loads(res_sym.stdout)
+                    symbols = sym_data.get("symbols", [])
+                    func_syms = [
+                        s for s in symbols
+                        if s.get("type") in ("FUNC", "METH") or (s.get("name", "").startswith("sym.") and not s.get("is_imported", False))
+                    ]
+                    if func_syms:
+                        funcs_recovered = len(func_syms)
+                        parsing_status = "success"
+                        exit_code = 0
+                        stdout_snip = f"rabin2 fast symbols recovered {funcs_recovered} functions"
+                        for s in func_syms[:100]:
+                            vaddr = s.get("vaddr") or s.get("paddr", 0)
+                            name = s.get("name") or s.get("realname", f"fcn_{vaddr:x}")
+                            size = s.get("size", 0)
+                            findings.append(
+                                self._make_finding(
+                                    finding_type="function",
+                                    address=f"0x{vaddr:08X}",
+                                    name=name,
+                                    description=f"Function {name} (size: {size} bytes)",
+                                    confidence=0.92,
+                                    raw_data=s,
+                                )
+                            )
+            except Exception as e:
+                logger.debug(f"Fast symbol extraction skipped: {e}")
 
-            if raw_out.startswith("[") and raw_out.endswith("]"):
-                funcs = json.loads(raw_out)
-                parsing_status = "success"
-                funcs_recovered = len(funcs)
-                for f in funcs[:100]:  # Cap at 100 for summary
-                    addr = f.get("addr") if f.get("addr") is not None else f.get("offset", 0)
-                    name = f.get("name", f"fcn_{addr:x}")
-                    size = f.get("size", 0)
-                    ninstrs = f.get("ninstrs", 0)
-                    nbbs = f.get("nbbs", 0)
-                    cc = f.get("cc", 0)
-                    findings.append(
-                        self._make_finding(
-                            finding_type="function",
-                            address=f"0x{addr:08X}",
-                            name=name,
-                            description=f"Function {name} (size: {size} bytes, instructions: {ninstrs}, basic blocks: {nbbs}, cyclomatic complexity: {cc})",
-                            confidence=0.90,
-                            raw_data=f,
+        # Targeted entrypoint recovery (<0.8s) if symbols weren't available
+        if funcs_recovered == 0:
+            fast_entry_cmd = [self.tool_path, "-qc", "af @ entry0; aflj", sample_path]
+            try:
+                res = self._run_process(fast_entry_cmd, timeout=min(self.timeout, 6))
+                raw_out = res.stdout.strip()
+                s_idx = raw_out.find("[")
+                e_idx = raw_out.rfind("]")
+                if s_idx != -1 and e_idx != -1 and e_idx > s_idx:
+                    funcs = json.loads(raw_out[s_idx : e_idx + 1])
+                    if funcs:
+                        funcs_recovered = len(funcs)
+                        parsing_status = "success"
+                        exit_code = 0
+                        stdout_snip = f"radare2 entrypoint analysis recovered {funcs_recovered} function(s)"
+                        r2_cmd = fast_entry_cmd
+                        for f in funcs:
+                            addr = f.get("addr") if f.get("addr") is not None else f.get("offset", 0)
+                            name = f.get("name", f"fcn_{addr:x}")
+                            size = f.get("size", 0)
+                            ninstrs = f.get("ninstrs", 0)
+                            nbbs = f.get("nbbs", 0)
+                            cc = f.get("cc", 0)
+                            findings.append(
+                                self._make_finding(
+                                    finding_type="function",
+                                    address=f"0x{addr:08X}",
+                                    name=name,
+                                    description=f"Function {name} (size: {size} bytes, instructions: {ninstrs}, basic blocks: {nbbs}, cyclomatic complexity: {cc})",
+                                    confidence=0.90,
+                                    raw_data=f,
+                                )
+                            )
+            except Exception as err:
+                logger.debug(f"Targeted entrypoint analysis skipped: {err}")
+
+        # Fallback to r2 batch auto-analysis if fast paths did not recover any functions
+        if funcs_recovered == 0:
+            try:
+                res = self._run_process(r2_cmd, timeout=min(self.timeout, 10))
+                exit_code = res.returncode
+                stdout_snip = (res.stdout or "")[:500]
+                stderr_snip = (res.stderr or "")[:500]
+                raw_out = res.stdout.strip()
+                s_idx = raw_out.find("[")
+                e_idx = raw_out.rfind("]")
+
+                if s_idx != -1 and e_idx != -1 and e_idx > s_idx:
+                    funcs = json.loads(raw_out[s_idx : e_idx + 1])
+                    parsing_status = "success"
+                    funcs_recovered = len(funcs)
+                    for f in funcs[:100]:  # Cap at 100 for summary
+                        addr = f.get("addr") if f.get("addr") is not None else f.get("offset", 0)
+                        name = f.get("name", f"fcn_{addr:x}")
+                        size = f.get("size", 0)
+                        ninstrs = f.get("ninstrs", 0)
+                        nbbs = f.get("nbbs", 0)
+                        cc = f.get("cc", 0)
+                        findings.append(
+                            self._make_finding(
+                                finding_type="function",
+                                address=f"0x{addr:08X}",
+                                name=name,
+                                description=f"Function {name} (size: {size} bytes, instructions: {ninstrs}, basic blocks: {nbbs}, cyclomatic complexity: {cc})",
+                                confidence=0.90,
+                                raw_data=f,
+                            )
                         )
-                    )
-            else:
-                parsing_status = "unexpected_format"
-                zero_reason = f"Output did not match expected JSON array: '{raw_out[:120]}'"
+                else:
+                    parsing_status = "unexpected_format"
+                    zero_reason = f"Output did not match expected JSON array: '{raw_out[:120]}'"
 
-            if funcs_recovered == 0 and not zero_reason:
-                zero_reason = "Zero functions discovered: binary may be a managed .NET assembly, stripped, packed, or pure data."
+                if funcs_recovered == 0 and not zero_reason:
+                    zero_reason = "Zero functions discovered: binary may be a managed .NET assembly, stripped, packed, or pure data."
 
-        except Exception as err:
-            logger.warning(f"radare2 function extraction failed: {err}")
-            parsing_status = "error"
-            zero_reason = str(err)
-            stderr_snip = str(err)
+            except Exception as err:
+                logger.warning(f"radare2 function extraction failed: {err}")
+                parsing_status = "error"
+                zero_reason = str(err)
+                stderr_snip = str(err)
 
         duration = round(time.time() - t0, 3)
 
@@ -176,7 +249,5 @@ class Radare2Adapter(BaseAdapter):
                     raw_data=self.last_execution,
                 )
             )
-
-        return findings
 
         return findings

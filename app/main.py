@@ -44,6 +44,11 @@ from app.core.differential_tester import DifferentialTester
 from adapters.ghidra_adapter import GhidraAdapter
 from adapters.angr_adapter import AngrAdapter
 
+import logging
+# Suppress noisy angr Unicorn missing DLL warnings on Windows
+logging.getLogger("angr.state_plugins.unicorn_engine").setLevel(logging.CRITICAL)
+logging.getLogger("angr").setLevel(logging.ERROR)
+
 app = FastAPI(
     title="JARVIS Reverse Engineering Workbench",
     description="Unified AI-assisted reverse-engineering, disassembly, decompilation, and forensics platform.",
@@ -84,6 +89,29 @@ async def serve_dashboard(request: Request):
         return templates.TemplateResponse(request=request, name="index.html")
     except TypeError:
         return templates.TemplateResponse("index.html", {"request": request})
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+async def get_favicon():
+    """Serve embedded vector favicon to eliminate 404 console noise."""
+    svg_icon = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <defs>
+    <linearGradient id="jarvisGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00f5ff"/>
+      <stop offset="50%" stop-color="#4f8cff"/>
+      <stop offset="100%" stop-color="#7928ca"/>
+    </linearGradient>
+  </defs>
+  <rect width="100" height="100" rx="22" fill="#080c18"/>
+  <polygon points="50,14 84,33 84,72 50,91 16,72 16,33" fill="none" stroke="url(#jarvisGrad)" stroke-width="5"/>
+  <circle cx="50" cy="52" r="16" fill="none" stroke="#00f5ff" stroke-width="3"/>
+  <circle cx="50" cy="52" r="6" fill="#00f5ff"/>
+  <line x1="50" y1="20" x2="50" y2="36" stroke="#00f5ff" stroke-width="2"/>
+  <line x1="50" y1="68" x2="50" y2="84" stroke="#00f5ff" stroke-width="2"/>
+  <line x1="22" y1="52" x2="34" y2="52" stroke="#00f5ff" stroke-width="2"/>
+  <line x1="66" y1="52" x2="78" y2="52" stroke="#00f5ff" stroke-width="2"/>
+</svg>"""
+    return Response(content=svg_icon, media_type="image/svg+xml")
 
 
 @app.get("/api/health")
@@ -135,8 +163,10 @@ async def create_analysis_job(
     if not file.filename:
         raise HTTPException(status_code=400, detail="No file provided")
 
-    temp_dir = tempfile.mkdtemp(prefix="jarvis_job_")
-    temp_file_path = os.path.join(temp_dir, file.filename)
+    job_uid = str(uuid.uuid4())[:12]
+    job_sample_dir = os.path.join(SAMPLES_DIR, job_uid)
+    os.makedirs(job_sample_dir, exist_ok=True)
+    temp_file_path = os.path.join(job_sample_dir, file.filename)
 
     with open(temp_file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
@@ -147,6 +177,9 @@ async def create_analysis_job(
     }
 
     job = job_manager.create_job(temp_file_path, file.filename, options=options)
+    # Register paths immediately in storage for early lookup
+    SAMPLES_STORAGE[job.job_id] = temp_file_path
+    SAMPLES_STORAGE[file.filename] = temp_file_path
     return job
 
 
@@ -235,19 +268,21 @@ async def analyze_sample(file: UploadFile = File(...)):
 # Controlled Dynamic Sandbox Execution
 # ---------------------------------------------------------------------------
 
+class SandboxExecutionRequest(BaseModel):
+    sample_path: Optional[str] = ""
+    report_id: Optional[str] = None
+    authorized: bool = False
+    confirmation_token: str = ""
+    timeout: int = 20
+
+
 @app.post("/api/dynamic/execute")
-async def execute_in_sandbox(
-    sample_path: Optional[str] = Body("", embed=True),
-    report_id: Optional[str] = Body(None, embed=True),
-    authorized: bool = Body(False, embed=True),
-    confirmation_token: str = Body("", embed=True),
-    timeout: int = Body(20, embed=True),
-):
+async def execute_in_sandbox(payload: SandboxExecutionRequest):
     """
     Trigger controlled execution of an authorized sample inside the isolated sandbox jail.
     Requires explicit analyst authorization token to prevent accidental execution.
     """
-    if not authorized or not confirmation_token:
+    if not payload.authorized or not payload.confirmation_token:
         raise HTTPException(
             status_code=403,
             detail="Authorization required: Dynamic execution blocked without explicit analyst confirmation.",
@@ -255,30 +290,58 @@ async def execute_in_sandbox(
 
     # Resolve target binary from storage or direct path
     target = None
-    if report_id and report_id in SAMPLES_STORAGE:
-        target = SAMPLES_STORAGE[report_id]
-    elif sample_path and os.path.isfile(sample_path):
-        target = sample_path
-    elif sample_path and sample_path in SAMPLES_STORAGE:
-        target = SAMPLES_STORAGE[sample_path]
+    if payload.report_id and payload.report_id in SAMPLES_STORAGE:
+        target = SAMPLES_STORAGE[payload.report_id]
+    elif payload.sample_path and payload.sample_path in SAMPLES_STORAGE:
+        target = SAMPLES_STORAGE[payload.sample_path]
+    elif payload.sample_path and os.path.isfile(payload.sample_path):
+        target = payload.sample_path
+
+    # Workspace directory search fallback
+    if not target or not os.path.isfile(target):
+        for root, dirs, files in os.walk(SAMPLES_DIR):
+            if payload.report_id and payload.report_id in root:
+                if files:
+                    target = os.path.join(root, files[0])
+                    break
+            if payload.sample_path and os.path.basename(payload.sample_path) in files:
+                target = os.path.join(root, os.path.basename(payload.sample_path))
+                break
+
+    # Temp dir fallback
+    if not target or not os.path.isfile(target):
+        temp_base = tempfile.gettempdir()
+        try:
+            for item in os.listdir(temp_base):
+                if item.startswith("jarvis_job_"):
+                    candidate_dir = os.path.join(temp_base, item)
+                    if os.path.isdir(candidate_dir):
+                        if payload.sample_path and os.path.isfile(os.path.join(candidate_dir, os.path.basename(payload.sample_path))):
+                            target = os.path.join(candidate_dir, os.path.basename(payload.sample_path))
+                            break
+        except Exception:
+            pass
 
     if not target or not os.path.isfile(target):
-        raise HTTPException(status_code=404, detail="Target binary not found in active workspace or invalid path.")
+        raise HTTPException(
+            status_code=404,
+            detail=f"Target binary '{payload.sample_path or payload.report_id}' not found in active workspace or sample storage.",
+        )
 
-    sandbox = ControlledSandbox(timeout=timeout)
+    sandbox = ControlledSandbox(timeout=payload.timeout)
     trace = sandbox.execute_sample(
         sample_path=target,
-        authorized=authorized,
-        analyst_confirmation_token=confirmation_token,
+        authorized=payload.authorized,
+        analyst_confirmation_token=payload.confirmation_token,
     )
 
     # Attach dynamic findings and trace to active report if present
-    if report_id and report_id in REPORTS_CACHE:
-        rep = REPORTS_CACHE[report_id]
+    if payload.report_id and payload.report_id in REPORTS_CACHE:
+        rep = REPORTS_CACHE[payload.report_id]
         rep.dynamic_trace = trace
         rep.findings.append(
             Finding(
-                run_id=report_id,
+                run_id=payload.report_id,
                 sample_sha256=rep.sample.sha256,
                 source_tool="sandbox",
                 tool_version="1.0.0",

@@ -20,6 +20,9 @@ class AngrAdapter(BaseAdapter):
 
     def is_available(self) -> bool:
         try:
+            # Suppress noisy Unicorn DLL warnings on platforms without C unicorn DLLs
+            logging.getLogger("angr.state_plugins.unicorn_engine").setLevel(logging.CRITICAL)
+            logging.getLogger("angr").setLevel(logging.ERROR)
             import angr
             return True
         except ImportError:

@@ -128,3 +128,33 @@ def test_05_ai_explain_function_endpoint(client):
     data = res.json()
     assert data["function_name"] == "test_fcn"
     assert "technical_summary" in data
+
+
+def test_06_favicon_endpoint(client):
+    """Verify favicon endpoint serves embedded SVG with correct media type."""
+    res = client.get("/favicon.ico")
+    assert res.status_code == 200
+    assert "image/svg+xml" in res.headers["content-type"]
+    assert "<svg" in res.text
+
+
+def test_07_dynamic_sandbox_execution_success(client, pe_payload):
+    """Verify authorized dynamic execution succeeds and resolves the sample via report_id."""
+    # Analyze sample via sync endpoint
+    res_upload = client.post("/api/analyze", files={"file": ("sandbox_target.exe", pe_payload, "application/octet-stream")})
+    assert res_upload.status_code == 200
+    report_id = res_upload.json()["report_id"]
+
+    # Execute with explicit authorization
+    res_exec = client.post("/api/dynamic/execute", json={
+        "sample_path": "sandbox_target.exe",
+        "report_id": report_id,
+        "authorized": True,
+        "confirmation_token": "TEST_ANALYST_CONFIRMATION",
+        "timeout": 5,
+    })
+    assert res_exec.status_code == 200
+    trace = res_exec.json()
+    assert trace["executed"] is True
+    assert "sandbox_mode" in trace
+

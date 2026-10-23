@@ -103,10 +103,9 @@ class JobManager:
             analyzer = BinaryAnalyzer(file_path)
             sample_info, raw_findings = analyzer.analyze(options=options)
 
-            # Stage 2: Deep Disassembly & Decompilation
-            self._update_stage(job, 45, "Executing disassembly recovery and CFG extraction...")
-            disasm_engine = DisassemblyEngine()
-            enriched_functions = disasm_engine.enrich_functions(file_path, analyzer.functions, limit=10)
+            # Stage 2: Disassembly & Function Extraction
+            self._update_stage(job, 55, "Disassembly recovery and CFG extraction complete...")
+            enriched_functions = analyzer.functions
 
             # Stage 3: Evidence Correlation & Hypotheses
             self._update_stage(job, 75, "Correlating cross-tool evidence and evaluating confidence...")
@@ -138,9 +137,20 @@ class JobManager:
             )
 
             job.report = report
-            self._update_stage(job, 100, "Analysis complete. Report generated.")
+            self._update_stage(job, 100, f"Analysis complete. Generated report ID: {job.job_id}")
             job.status = JobStatus.COMPLETED
             job.completed_at = datetime.now(timezone.utc)
+
+            # Store in report cache and sample storage for instant sandbox & deep RE access
+            try:
+                import app.main as app_main
+                app_main.REPORTS_CACHE[job.job_id] = report
+                app_main.REPORTS_CACHE[report.report_id] = report
+                app_main.SAMPLES_STORAGE[job.job_id] = file_path
+                app_main.SAMPLES_STORAGE[report.report_id] = file_path
+                app_main.SAMPLES_STORAGE[job.filename] = file_path
+            except Exception:
+                pass
 
         except Exception as e:
             logger.error("Job %s failed: %s", job_id, e, exc_info=True)

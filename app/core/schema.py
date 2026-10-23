@@ -65,6 +65,7 @@ class FindingType(str, Enum):
     CFG = "cfg"
     ARCHIVE_MEMBER = "archive_member"
     DYNAMIC_EVENT = "dynamic_event"
+    BEHAVIOR_EVENT = "behavior_event"
     AI_SUMMARY = "ai_summary"
     CORRELATION = "correlation"
 

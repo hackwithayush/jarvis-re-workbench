@@ -398,8 +398,8 @@ class BinaryAnalyzer:
                     except Exception as jadx_err:
                         logger.warning("JADX decompilation error: %s", jadx_err)
 
-            # Mandiant capa capability analysis
-            if options.get("enable_capa", False) or "PE" in file_type or "ELF" in file_type:
+            # Mandiant capa capability analysis (opt-in)
+            if options.get("enable_capa", False):
                 capa_adapter = CapaAdapter()
                 if capa_adapter.is_available():
                     try:
