@@ -234,6 +234,18 @@ async def list_analysis_jobs():
     return job_manager.list_jobs()
 
 
+@app.post("/api/jobs/{job_id}/cancel")
+async def cancel_analysis_job(job_id: str):
+    """Gracefully cancel an active analysis job."""
+    success = job_manager.cancel_job(job_id)
+    if not success:
+        job = job_manager.get_job(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Job ID not found")
+        raise HTTPException(status_code=400, detail=f"Job cannot be cancelled (current status: {job.status})")
+    return {"status": "cancelled", "job_id": job_id}
+
+
 # ---------------------------------------------------------------------------
 # Synchronous Analysis Endpoint (Backward Compatible)
 # ---------------------------------------------------------------------------

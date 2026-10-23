@@ -381,7 +381,7 @@ class GeneratedProject(BaseModel):
 class BuildReport(BaseModel):
     build_id: str = Field(default_factory=lambda: uuid.uuid4().hex[:10])
     project_id: str
-    status: str = "pending"  # success, failed, in_progress
+    status: str = "pending"  # success, failed, in_progress, repairing
     compilation_passed: bool = False
     tests_total: int = 0
     tests_passed: int = 0
@@ -390,6 +390,7 @@ class BuildReport(BaseModel):
     build_logs: List[str] = Field(default_factory=list)
     packaged_artifact_path: Optional[str] = None
     repair_attempts: int = 0
+    repair_log: List[Dict[str, Any]] = Field(default_factory=list)
     limitations: List[str] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
@@ -406,6 +407,17 @@ class BuildReport(BaseModel):
         return self.packaged_artifact_path
 
 
+class DifferentialScenario(BaseModel):
+    scenario_id: str
+    name: str
+    linked_requirement: Optional[str] = None
+    inputs: Dict[str, Any] = Field(default_factory=dict)
+    original_observation: str
+    reconstructed_observation: str
+    comparison_method: str = "semantic_and_contract"
+    status: str = "PASS"  # PASS, FAIL, BLOCKED
+
+
 class DifferentialTestResult(BaseModel):
     test_id: str = Field(default_factory=lambda: uuid.uuid4().hex[:10])
     project_id: str
@@ -414,6 +426,7 @@ class DifferentialTestResult(BaseModel):
     discrepancies: List[str] = Field(default_factory=list)
     uncovered_workflows: List[str] = Field(default_factory=list)
     failed_acceptance_criteria: List[str] = Field(default_factory=list)
+    scenarios: List[Dict[str, Any]] = Field(default_factory=list)
     overall_conformance_score: float = 0.0
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
