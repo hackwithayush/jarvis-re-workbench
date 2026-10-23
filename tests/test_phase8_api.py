@@ -158,3 +158,22 @@ def test_07_dynamic_sandbox_execution_success(client, pe_payload):
     assert trace["executed"] is True
     assert "sandbox_mode" in trace
 
+
+def test_08_release_manifest_endpoint(client):
+    """Verify release manifest endpoint returns cryptographic digest and toolchain data."""
+    res = client.get("/api/release/manifest")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["release_version"] == "1.0.0"
+    assert data["acceptance_gate"] == "PASSED"
+    assert "sha256_digests" in data
+    assert "toolchain" in data
+
+
+def test_09_release_download_endpoint(client):
+    """Verify release package archive download endpoint serves valid zip stream."""
+    res = client.get("/api/release/download")
+    assert res.status_code == 200
+    assert "application/zip" in res.headers["content-type"]
+    assert len(res.content) > 100000
+

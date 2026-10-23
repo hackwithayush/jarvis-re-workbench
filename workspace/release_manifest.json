@@ -1,6 +1,6 @@
 {
   "release_version": "1.0.0",
-  "timestamp": "2026-10-23T16:55:31.546947+00:00",
+  "timestamp": "2026-10-23T17:02:13.912172+00:00",
   "build_status": "VERIFIED",
   "toolchain": {
     "python": {
@@ -27,20 +27,20 @@
   },
   "test_results": {
     "exit_code": 0,
-    "total_collected": 76,
-    "passed": 76,
+    "total_collected": 78,
+    "passed": 78,
     "failed": 0,
-    "duration_seconds": 57.13,
+    "duration_seconds": 57.09,
     "success": true
   },
   "archive_verification": {
     "valid": true,
-    "file_count": 905,
-    "uncompressed_bytes": 28120566,
-    "compressed_bytes": 15617615
+    "file_count": 973,
+    "uncompressed_bytes": 28307338,
+    "compressed_bytes": 15698559
   },
   "sha256_digests": {
-    "jarvis-re-workbench/app/main.py": "b1ac7bb06aaa88c423db61c1cb30e32eebc06beadd7bb6c340637f5540e4a237",
+    "jarvis-re-workbench/app/main.py": "e58af3310ecd7e89e991d9e4adf742203a0dfa078296e00fed2c6f1543b7a69b",
     "jarvis-re-workbench/app/core/job_manager.py": "0061b76f741d94c1a4214fff7f381ce9c2590596e700f8368cb2cb96c6c79faa",
     "jarvis-re-workbench/app/core/build_agent.py": "f12899fd28de7e6b122391b8ff4195057c93ff37f542926391d00f6843a55914",
     "jarvis-re-workbench/app/core/differential_tester.py": "ec94c696841a6ee4c44d4b498735a20f1d9f9dff1a361dd41bb6fafe862c7081",
@@ -48,7 +48,7 @@
     "jarvis-re-workbench/app/core/reconstruction_planner.py": "9e5cbedcb68d7c5f53adcdb0dcc42647cbc9933b44743500f7484f898992d17f",
     "jarvis-re-workbench/app/core/software_generator.py": "680311282accec10e82623178eab2a8158993694bb9f13052d428b886264b65d",
     "jarvis-re-workbench/workspace/samples/service_daemon.exe": "FILE_NOT_FOUND",
-    "jarvis-re-workbench-v1.zip": "a22c03e37abacb6ff1d51ba1a551c82a7a7b33738a79c42f7a2c538bbf3c2dda"
+    "jarvis-re-workbench-v1.zip": "4c00202b4ce8111f7a20f2d9685141cbc609620c5964807ba4f192a2ebe26ada"
   },
   "known_limitations": [
     "angr Unicorn engine requires native unicornlib.dll; symbolic analysis operates with fallback solver on Windows.",

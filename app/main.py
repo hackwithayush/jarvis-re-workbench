@@ -739,3 +739,38 @@ async def export_project_archive(project_id: str):
         filename=os.path.basename(zip_path),
         media_type="application/zip",
     )
+
+
+# ---------------------------------------------------------------------------
+# Release Manifest & Package Verification Endpoints
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/release/manifest")
+async def get_release_manifest():
+    """Retrieve the cryptographic release manifest and toolchain verification audit."""
+    manifest_candidates = [
+        os.path.join(BASE_DIR, "workspace", "release_manifest.json"),
+        os.path.join(os.path.dirname(BASE_DIR), "workspace", "release_manifest.json"),
+    ]
+    for c in manifest_candidates:
+        if os.path.isfile(c):
+            with open(c, "r", encoding="utf-8") as f:
+                return json.load(f)
+    raise HTTPException(status_code=404, detail="Release manifest not found.")
+
+
+@app.get("/api/release/download")
+async def download_release_archive():
+    """Download the verified JARVIS RE Workbench v1.0 distribution archive."""
+    repo_root = os.path.dirname(BASE_DIR)
+    parent_dir = os.path.dirname(repo_root)
+    candidates = [
+        os.path.join(parent_dir, "jarvis-re-workbench-v1.zip"),
+        os.path.join(repo_root, "jarvis-re-workbench-v1.zip"),
+        r"C:\AI\jarvis-re-workbench-v1.zip",
+    ]
+    for c in candidates:
+        if os.path.isfile(c):
+            return FileResponse(path=c, filename="jarvis-re-workbench-v1.zip", media_type="application/zip")
+    raise HTTPException(status_code=404, detail="Release archive not found.")

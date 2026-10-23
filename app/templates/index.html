@@ -48,6 +48,12 @@
         </svg>
         <span>API Docs</span>
       </a>
+      <button class="btn" style="border-color: #00ffaa; color: #00ffaa;" onclick="showReleaseManifestModal()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#00ffaa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="20 6 9 17 4 12"></polyline>
+        </svg>
+        <span>Release Gate</span>
+      </button>
     </div>
   </header>
 
@@ -84,7 +90,10 @@
       <div class="progress-bar-bg">
         <div id="progressBar" class="progress-bar-fill"></div>
       </div>
-      <div id="jobLog" style="margin-top: 8px; font-family: monospace; font-size: 11px; color: var(--text-muted);"></div>
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 8px;">
+        <div id="jobLog" style="font-family: monospace; font-size: 11px; color: var(--text-muted); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"></div>
+        <button id="btnCancelJob" onclick="cancelCurrentJob()" style="display: none; background: rgba(239, 68, 68, 0.15); border: 1px solid var(--danger); color: var(--danger); padding: 3px 10px; border-radius: 4px; font-size: 11px; cursor: pointer; font-weight: 600; margin-left: 10px;">Cancel Job</button>
+      </div>
     </div>
 
     <!-- Analysis Results Section -->
@@ -464,6 +473,26 @@
       </div>
     </section>
   </main>
+
+  <!-- Release Gate Modal -->
+  <div id="releaseModal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.75); z-index: 1000; align-items: center; justify-content: center;">
+    <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; width: 680px; max-width: 92vw; max-height: 85vh; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,0.6);">
+      <div style="display: flex; justify-content: space-between; align-items: center; padding: 14px 20px; border-bottom: 1px solid var(--border-color);">
+        <h3 style="margin: 0; font-size: 15px; color: #00ffaa; display: flex; align-items: center; gap: 8px;">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#00ffaa" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          Release Gate Verification Manifest
+        </h3>
+        <button onclick="document.getElementById('releaseModal').style.display = 'none'" style="background: none; border: none; color: var(--text-muted); font-size: 20px; cursor: pointer;">&times;</button>
+      </div>
+      <div id="releaseModalBody" style="padding: 16px 20px; overflow-y: auto; font-family: monospace; font-size: 12px; line-height: 1.5; color: var(--text-primary); flex: 1;">
+        Loading release manifest...
+      </div>
+      <div style="display: flex; justify-content: flex-end; gap: 10px; padding: 12px 20px; border-top: 1px solid var(--border-color); background: rgba(0,0,0,0.2);">
+        <a href="/api/release/download" class="btn" style="border-color: #00ffaa; color: #00ffaa; text-decoration: none;">Download Release (.zip)</a>
+        <button class="btn" onclick="document.getElementById('releaseModal').style.display = 'none'">Close</button>
+      </div>
+    </div>
+  </div>
 
   <footer>
     JARVIS AI Reverse Engineering Workbench v1.0 &bull; Multi-Engine Reverse Engineering Platform &bull; Strict Provenance
