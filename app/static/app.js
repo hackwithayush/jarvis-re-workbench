@@ -56,6 +56,13 @@ function initUpload() {
   window.addEventListener("drop", (e) => e.preventDefault());
 }
 
+function formatNetworkError(err) {
+  if (err && (err.name === "TypeError" || String(err).includes("NetworkError") || String(err).includes("Failed to fetch"))) {
+    return "Cannot connect to JARVIS backend at http://127.0.0.1:8000. Please ensure the server is running (e.g. via run.bat).";
+  }
+  return err ? (err.message || String(err)) : "Unknown error";
+}
+
 async function loadDemoSample() {
   const progressBox = document.getElementById("progressBox");
   const progressBar = document.getElementById("progressBar");
@@ -70,14 +77,18 @@ async function loadDemoSample() {
   try {
     const res = await fetch("/api/sample/demo", { method: "POST" });
     if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.detail || "Failed to trigger demo analysis");
+      let msg = "Failed to trigger demo analysis";
+      try {
+        const err = await res.json();
+        msg = err.detail || msg;
+      } catch (_) {}
+      throw new Error(msg);
     }
     const job = await res.json();
     pollJob(job.job_id);
   } catch (err) {
     progressBox.style.display = "none";
-    alert(`Demo analysis error: ${err.message}`);
+    alert(`Demo analysis error: ${formatNetworkError(err)}`);
   }
 }
 
@@ -145,7 +156,7 @@ async function fallbackSyncAnalyze(formData) {
     }, 400);
   } catch (e) {
     progressBox.style.display = "none";
-    alert(`Analysis error: ${e.message}`);
+    alert(`Analysis error: ${formatNetworkError(e)}`);
   }
 }
 
